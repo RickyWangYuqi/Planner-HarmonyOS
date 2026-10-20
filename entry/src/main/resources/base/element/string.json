@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "本地优先的日程记录便签" },
+    { "name": "EntryAbility_desc", "value": "当日与未来日程、分组、进度和历史记录" },
+    { "name": "EntryAbility_label", "value": "Planer 日程便签" }
+  ]
+}
