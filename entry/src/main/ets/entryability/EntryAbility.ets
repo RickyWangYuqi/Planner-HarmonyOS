@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { display, window } from '@kit.ArkUI';
 
 const DOMAIN = 0x0000;
-const TAG = 'Planer';
+const TAG = '序笺';
 
 export default class EntryAbility extends UIAbility {
   private mainWindow: window.Window | undefined = undefined;

@@ -1,0 +1,32 @@
+[
+  {
+    "file": "01-今天与未来.png",
+    "headline": "把今天与未来 / 分开放好",
+    "subtitle": "轻巧记录，从容安排每一天",
+    "screenshot": "01-首页浅色.png"
+  },
+  {
+    "file": "02-分组整理.png",
+    "headline": "分而有序 / 计划更清楚",
+    "subtitle": "工作、生活与成长，各有自己的位置",
+    "screenshot": "02-分组整理.png"
+  },
+  {
+    "file": "03-记录进度.png",
+    "headline": "每一点进展 / 都值得看见",
+    "subtitle": "记录完成进度，轻勾收获踏实",
+    "screenshot": "03-编辑进度与分组.png"
+  },
+  {
+    "file": "04-历史回顾.png",
+    "headline": "完成的事 / 也好好收藏",
+    "subtitle": "历史日程，随时回顾与恢复",
+    "screenshot": "04-历史回顾.png"
+  },
+  {
+    "file": "05-明暗主题.png",
+    "headline": "选一种颜色 / 让计划更合心意",
+    "subtitle": "浅色与深色，自有舒服的节奏",
+    "screenshot": "05-首页深色.png"
+  }
+]

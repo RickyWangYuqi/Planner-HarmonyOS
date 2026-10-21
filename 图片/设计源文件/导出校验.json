@@ -1,0 +1,44 @@
+[
+  {
+    "file": "00-总览.png",
+    "width": 1920,
+    "height": 1080,
+    "bytes": 596913,
+    "sha256": "f791ccfe4da75b4ece6031ed6454f19b973823a7336780b809d25387ac1e1145"
+  },
+  {
+    "file": "01-今天与未来.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1063062,
+    "sha256": "d27223bc0673da49011c7c769d5af2ec93b4049133d2e68157d174853fa9ebce"
+  },
+  {
+    "file": "02-分组整理.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1069910,
+    "sha256": "a09268bde8327d38010e67370887b9f1cc19426f39d73c690ce7e5c93e0258fc"
+  },
+  {
+    "file": "03-记录进度.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 960409,
+    "sha256": "0b7cf82fc95d80039d0af912638a726fbedeaf6cb463f54c3e251341228c9a5c"
+  },
+  {
+    "file": "04-历史回顾.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 922894,
+    "sha256": "1f12b5ed8ca3ec1e867b51c3980bdcd036a127014bbe6dc8e561f869a31f0af7"
+  },
+  {
+    "file": "05-明暗主题.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1141579,
+    "sha256": "6e4a318f9fd586eb280eec6667404664fc738ee206196e436958b5f042e1cfdd"
+  }
+]

@@ -58,7 +58,7 @@ export struct TaskCardView {
       }.layoutWeight(1).alignItems(HorizontalAlign.Start).padding({ left: 3 })
       Row() {
         IconButton({ icon: 'edit', label: '编辑日程', palette: this.palette, onTap: () => this.onEdit() })
-      }
+      }.id((this.preview ? 'preview-edit-' : 'edit-') + this.task.id)
     }.width('100%').padding({ left: 8, right: 2, top: 3, bottom: 3 })
       .backgroundColor(Materials.fallback(this.palette)).borderRadius(16)
       .backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })

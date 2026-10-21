@@ -1,7 +1,28 @@
 {
   "string": [
-    { "name": "module_desc", "value": "本地优先的日程记录便签" },
-    { "name": "EntryAbility_desc", "value": "当日与未来日程、分组、进度和历史记录" },
-    { "name": "EntryAbility_label", "value": "Planer 日程便签" }
+    {
+      "name": "module_desc",
+      "value": "序笺，本地优先的日程记录应用"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "序笺：当日与未来日程、分组、进度和历史记录"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "序笺"
+    },
+    {
+      "name": "welcome_title",
+      "value": "欢迎使用序笺"
+    },
+    {
+      "name": "local_save_brand",
+      "value": "序笺 · 数据保存在本机，自动保存"
+    },
+    {
+      "name": "brand_name",
+      "value": "序笺"
+    }
   ]
 }

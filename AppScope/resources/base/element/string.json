@@ -1,1 +1,8 @@
-{ "string": [{ "name": "app_name", "value": "Planer 日程便签" }] }
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "序笺"
+    }
+  ]
+}

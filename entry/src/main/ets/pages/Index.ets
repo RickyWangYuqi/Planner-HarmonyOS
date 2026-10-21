@@ -4,6 +4,9 @@ import { window, KeyboardAvoidMode, FrameCallback } from '@kit.ArkUI';
 import { AppData, AppAction, Task } from '../model/PlanerModel';
 import { freshData, reduce, todayKey, addDays, formatFull, formatRange } from '../model/PlanerEngine';
 import { PlanerStorage } from '../services/PlanerStorage';
+import { TutorialStorage } from '../services/TutorialStorage';
+import { TutorialView } from '../components/TutorialView';
+import { TutorialProgress, shouldAutoTutorial, closeTutorial } from '../tutorial/TutorialConfig';
 import { Palette, paletteFor } from '../theme/Theme';
 import { IconButton } from '../components/IconButton';
 import { PlanerCalendar } from '../components/CalendarPicker';
@@ -51,7 +54,16 @@ struct Index {
   @State loadError: string = '';
   @State saveError: string = '';
   @State saving: boolean = false;
+  @State private tutorialShown: boolean = false;
+  @State private tutorialProgress: TutorialProgress = new TutorialProgress();
+  @State private tutorialError: string = '';
+  private tutorialStore: TutorialStorage = new TutorialStorage();
+  private tutorialLoading: boolean = true;
+  private tutorialStoreReady: boolean = false;
+  private tutorialDisposed: boolean = false;
+  private tutorialRevision: number = 0;
   @State page: number = 0;
+  @State private historyCreated: boolean = false;
   @State modal: string = '';
   @State sheetShown: boolean = false;
   @State activeTab: number = 0;
@@ -143,6 +155,7 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    this.tutorialDisposed = true;
     this.stopMoreObservation();
     if (this.timer >= 0) clearInterval(this.timer);
     this.resetDrag();
@@ -157,6 +170,10 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.tutorialShown) {
+      this.dismissTutorial();
+      return true;
+    }
     if (this.sheetShown) {
       this.closeModal();
       return true;
@@ -184,11 +201,59 @@ struct Index {
       this.updatePalette();
       this.checkDate();
       this.restoreAnchor();
+      this.initializeTutorial();
     } catch (error) {
       this.loadError = '无法读取本地日程。请重试；原数据文件已保留。';
     }
   }
 
+  private async initializeTutorial(): Promise<void> {
+    if (!this.context) return;
+    try {
+      const progress = await this.tutorialStore.load(this.context);
+      if (this.tutorialDisposed) return;
+      this.tutorialStoreReady = true;
+      this.tutorialProgress = progress;
+    } catch (error) {
+      if (this.tutorialDisposed) return;
+      this.tutorialError = '教程进度暂不可用';
+    }
+    this.tutorialLoading = false;
+    if (shouldAutoTutorial(this.tutorialProgress)) this.openTutorial();
+  }
+
+  private openTutorial(): void {
+    if (this.tutorialLoading || this.tutorialShown) return;
+    this.resetDrag();
+    this.getUIContext().animateTo(Motion.spring(), (): void => { this.tutorialShown = true; });
+  }
+
+  private dismissTutorial(): void {
+    this.tutorialProgress = closeTutorial(this.tutorialProgress);
+    this.getUIContext().animateTo(Motion.quick(), (): void => { this.tutorialShown = false; });
+    this.saveTutorial();
+  }
+
+  private async saveTutorial(retry: boolean = false): Promise<void> {
+    const progress = this.tutorialProgress;
+    const revision = ++this.tutorialRevision;
+    try {
+      if (retry && !this.tutorialStoreReady && this.context) {
+        await this.tutorialStore.load(this.context);
+        this.tutorialStoreReady = true;
+      }
+      await this.tutorialStore.save(progress);
+      if (!this.tutorialDisposed && revision === this.tutorialRevision) this.tutorialError = '';
+    } catch (error) {
+      if (this.tutorialDisposed || revision !== this.tutorialRevision) return;
+      this.tutorialError = '教程进度未保存';
+      if (!this.tutorialShown) {
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: '教程进度保存失败，下次可能再次显示。可从设置回看并重试。' });
+        } catch (toastError) { console.warn('无法显示教程进度提示'); }
+      }
+    }
+  }
   private updatePalette(): void {
     const mode = this.data.settings.themeMode;
     if (this.ready && this.context && this.appliedColorMode !== mode) {
@@ -289,7 +354,11 @@ struct Index {
     if (page < 2) {
       this.tabsController.changeIndex(page);
     }
-    this.getUIContext().animateTo(Motion.spring(), () => { this.page = page; });
+    this.getUIContext().animateTo(Motion.spring(), () => {
+      // 历史页首次访问才建树，避免启动时默认位置到右侧隐藏位置产生退场动画。
+      if (page === 2) this.historyCreated = true;
+      this.page = page;
+    });
     if (page === 0) this.restoreAnchor();
   }
 
@@ -1344,7 +1413,7 @@ struct Index {
     Column() {
       Row({ space: 8 }) {
         Row().width(9).height(9).borderRadius(3).backgroundColor(this.palette.accent)
-        Text('Planer 日程便签').fontSize(13).fontColor(this.palette.textSoft).fontWeight(FontWeight.Medium)
+        Text($r('app.string.brand_name')).fontSize(13).fontColor(this.palette.textSoft).fontWeight(FontWeight.Medium)
         Blank()
       }.width('100%').height(36)
       Row({ space: 8 }) {
@@ -1480,7 +1549,8 @@ struct Index {
                 .labelStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft }))
               TabContent() {
                 SettingsView({ data: this.data, palette: this.palette, scroller: this.settingsScroller,
-                  onAction: (action: AppAction) => this.dispatch(action), onHistory: () => this.navigate(2) })
+                  onAction: (action: AppAction) => this.dispatch(action), onHistory: () => this.navigate(2),
+                  onTutorial: () => this.openTutorial() })
                   .padding({ bottom: this.safeBottom - this.tabsBottomPadding() })
               }.tabBar(BottomTabBarStyle.of(this.displayedTab === 1 ? $r('app.media.gearshape_fill_tab') : $r('app.media.gearshape_tab'), '设置')
                 .id('tab-settings').iconStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft })
@@ -1496,15 +1566,27 @@ struct Index {
               this.resetDrag();
               if (index === 0) { this.restoreAnchor(); this.updateFutureTailSpace(); }
             })
-            HistoryView({ data: this.data, palette: this.palette, scroller: this.historyScroller,
-              onBack: () => this.navigate(1), onRestore: (task: Task, date: string) => this.restoreTask(task, date),
-              onDelete: (task: Task, date: string) => this.confirmDelete(task, date), onClear: () => this.clearHistory() })
-              .padding({ bottom: this.safeBottom - this.tabsBottomPadding() })
-              .translate({ x: this.page === 2 ? '0%' : '100%' })
-              .backgroundColor(this.palette.bg)
+            // 首次创建使用插入转场，访问后保留实例与滚动位置；以后仍按原位移动画进出。
+            if (this.historyCreated) {
+              HistoryView({ data: this.data, palette: this.palette, scroller: this.historyScroller,
+                onBack: () => this.navigate(1), onRestore: (task: Task, date: string) => this.restoreTask(task, date),
+                onDelete: (task: Task, date: string) => this.confirmDelete(task, date), onClear: () => this.clearHistory() })
+                .padding({ bottom: this.safeBottom - this.tabsBottomPadding() })
+                .translate({ x: this.page === 2 ? '0%' : '100%' })
+                .backgroundColor(this.palette.bg)
+                .transition(TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()))
+                .id('history-page')
+            }
           }.width('100%').height('100%').padding({ bottom: this.tabsBottomPadding() })
+            .accessibilityLevel(this.tutorialShown ? 'no-hide-descendants' : 'auto')
+
         }
         this.floatingPreview()
+        if (this.tutorialShown) {
+          TutorialView({ palette: this.palette, safeTop: this.safeTop, safeBottom: this.safeBottom,
+            saveError: this.tutorialError, onClose: (): void => this.dismissTutorial(),
+            onRetry: (): void => { this.saveTutorial(true); } }).zIndex(30)
+        }
       }.id('planer-root').width('100%').height('100%')
         .backgroundColor(this.palette.bg)
         .linearGradient({ direction: GradientDirection.Bottom, colors: [
@@ -1515,7 +1597,11 @@ struct Index {
           height: this.sheetHeight(), dragBar: false, showClose: false,
           radius: { topLeft: 24, topRight: 24, bottomLeft: 24, bottomRight: 24 },
           keyboardAvoidMode: SheetKeyboardAvoidMode.NONE,
-          onDisappear: () => { if (!this.sheetShown) this.modal = ''; }
+          onDisappear: () => {
+            if (!this.sheetShown) {
+              this.modal = '';
+            }
+          }
         }))
     }
   }

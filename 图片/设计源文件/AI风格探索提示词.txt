@@ -1,0 +1,14 @@
+Use case: compositing / ads-marketing.
+Create ONE polished Chinese app-store promotional screenshot for the real HarmonyOS app「序笺」.
+The attached image is an ACTUAL screenshot and is the supporting insert. Its app UI is the factual source. Keep the screenshot's typography, controls, data, counts, layout, cards, all Chinese characters, and proportions unchanged. Place it as a straight flat raster insert, NOT a redraw. Do not invent new app UI.
+
+Output: a single tall portrait poster, preferably 9:16, high resolution. Sophisticated minimalist editorial layout, exquisite clear Chinese typography, restrained off-white and pale lavender gradient background, deep ink-purple headings (#29243e), soft violet accent (#7160EF), generous breathing space. No people, no photographs, no desks, no stationery clutter, no ornaments competing with the UI. Real app screen is the hero: very large, centered, vertical, in a very subtle slim graphite device outline with round corners and soft realistic shadow; no notch, no brand logo, no hardware camera island. Screenshot must stay large and legible. Small neat brand wordmark「序笺」at upper left with a tiny purple rounded square, discreet tiny 01 at upper right. A few pale translucent rounded planes may sit far behind the device, near lower corners.
+Composition: brand at top with ample margin, two-line large bold headline below, one short subtitle, then the large faithful screen occupying about the bottom 74% of the canvas. Keep the phone completely inside canvas; retain app's visible bottom tabs. Can crop off the phone's real personal system status bar (clock/network/battery) from the inserted screenshot; do not alter the rest. No slanted perspective, no duplicated UI fragments, no badges or fake floating feature cards.
+Exact poster text only:
+Brand:「序笺」
+Headline line 1:「把今天与未来」
+Headline line 2:「分开放好」
+Subtitle:「轻巧记录，从容安排每一天」
+Small page number:「01」
+No English, no invented slogan, no additional footer text.
+Elegant, calm, clean, readable, ready to present as an app-store screenshot.

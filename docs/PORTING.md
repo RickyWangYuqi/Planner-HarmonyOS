@@ -1,6 +1,8 @@
-# Planer 桌面功能移植说明
+# 序笺 · 桌面功能移植说明
 
 本说明依据 `Planer` 的 README、AGENTS、design-qa、React 页面与组件、reducer、lib/data、store、Tauri 源码及业务测试整理。源码、资源、文档改动限定在 `PlanerHarmony`，未改动桌面 Planer 源码。更新日期：2026-10-16。
+
+2026-10-20 品牌更新：鸿蒙端应用正式名称为「序笺」，系统显示名、应用内文案和新手教程已统一。文中的 `Planer` 仍指原桌面项目或既有技术标识；应用商店介绍见 [应用商店文案](STORE-LISTING.md)。
 
 ## 阅读结论与实现计划
 

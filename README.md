@@ -1,8 +1,12 @@
-# Planer 日程便签 · HarmonyOS 手机端
+# 序笺 · HarmonyOS 日程记录应用
 
-基于桌面 Planer 1.1.0 实际业务代码与设计令牌实现的鸿蒙原生版本。保留当日 / 未来双列表、分组、进度、历史恢复和主题；使用 ArkTS、ArkUI、Stage 模型，编译与目标 SDK 为 26.0.0，最低兼容 HarmonyOS 6.1.1(24)。
+序笺基于桌面 Planer 1.1.0 实际业务代码与设计令牌实现，是本项目的鸿蒙原生应用正式名称。保留当日 / 未来双列表、分组、进度、历史恢复和主题；使用 ArkTS、ArkUI、Stage 模型，编译与目标 SDK 为 26.0.0，最低兼容 HarmonyOS 6.1.1(24)。
 
 工程沿用现有脚手架，模块为 `entry`，包名为 `com.example.planerharmony`。数据仅保存在应用沙箱，不连接业务服务器。
+
+应用名称统一为「序笺」：桌面 / 系统显示名、主页、设置、新手教程和组件预览均使用新名称。宣传语为「像便签一样轻巧，像清单一样有序。」；当前商店介绍见 [应用商店文案](docs/STORE-LISTING.md)。
+
+项目目录 `PlanerHarmony`、包名、签名文件、资源标识、代码类名与 `planer_tutorial` 等存储键沿用既有技术名称，避免更名改变安装身份、影响历史数据或破坏文件引用；它们不作为对用户展示的应用名称。桌面来源项目 `Planer` 的名称和原文件路径保留原样。
 
 ## 功能一览
 
@@ -63,6 +67,12 @@ API 26 原生底部 Tabs、半模态表单、确认弹窗和受支持系统组�
 
 本轮已在真机复验固定标题与滚动模糊、主题滑块、图标配色、分组直接保存、单卡排序 / 跨区移动和编辑删除；现场自然跨午夜也完成了未完成日程顺延。范围与最终截图见 [本轮交互验收记录](docs/INTERACTION-QA.md)。包含最后一次落点状态修订的检查、签名构建、安装和启动均通过；已执行范围与未覆盖场景分开记录。
 
+### 新手教程
+
+首次打开应用时显示一页简短说明，介绍当日 / 未来日程、编辑与完成、长按拖动、分组，以及历史与外观设置。点「开始使用」、点「稍后」或使用返回手势即可关闭，之后启动不再自动打扰；随时可从「设置 → 新手教程」重新查看。说明不要求操作日程，也不改变数据、主题或当前页面。
+
+内容集中在 `entry/src/main/ets/tutorial/TutorialConfig.ets`，调整说明只需更新五项标题、文案与图标；组件保留圆角、当前主题和自然入场动画。常规手机竖屏集中显示一页，小屏或大字体时正文可滚动，「开始使用」始终可见。首次使用标记单独存入 Preferences，保存失败可重试。
+
 ### 窗口行为与功能边界
 
 手机端不暴露 Windows 专属开关；保留数据字段以维持版本兼容，并在应用生命周期中处理前后台切换。
@@ -88,6 +98,8 @@ API 26 原生底部 Tabs、半模态表单、确认弹窗和受支持系统组�
 - `entry/src/main/ets/theme/Theme.ets`：四套配色的浅 / 深色设计令牌。
 - `entry/src/main/ets/theme/Appearance.ets`：统一 Motion 动画、受版本保护的 Materials、原生底栏兼容分支，以及表单轻色叠层。
 
+- `entry/src/main/ets/tutorial/TutorialConfig.ets` 与 `components/TutorialView.ets`：单页核心功能说明；`services/TutorialStorage.ets` 独立保存首次使用标记。
+
 完整数据字段、功能对齐矩阵和业务边缘说明见 [移植说明](docs/PORTING.md)。
 
 ## 开发
@@ -112,12 +124,13 @@ node scripts/test-engine.mjs
 node scripts/test-storage.mjs
 node scripts/test-editor.mjs
 node scripts/test-drag.mjs
+node scripts/test-tutorial.mjs
 
 # DevEco Local Test（Hypium；无需设备，需完整构建工具链）
 .\scripts\deveco.ps1 hvigor test -p module=entry -p coverage=false --no-daemon
 ```
 
-`test-engine.mjs` 在内存中转换并运行实际 `.ets` 业务文件，`test-editor.mjs` 提取真实表单提交方法并调用业务引擎，均不修改应用数据。`test-drag.mjs` 提取真实拖动方法，验证落点到业务动作的转换、识别同步拾起、布局完成后落位与取消清理；编辑和拖动测试均不验证 ArkUI 渲染、真实手势或键盘。脚本自动寻找现有 TypeScript；在其它机器无法自动找到时，可设置 `$env:TYPESCRIPT_PATH` 为已安装 TypeScript 模块目录。
+`test-engine.mjs` 在内存中转换并运行实际 `.ets` 业务文件，`test-editor.mjs` 提取真实表单提交方法并调用业务引擎，均不修改应用数据。`test-tutorial.mjs` 验证首次使用标记和单页配置，不执行真实日程操作。`test-drag.mjs` 提取真实拖动方法，验证落点到业务动作的转换、识别同步拾起、布局完成后落位与取消清理；编辑和拖动测试均不验证 ArkUI 渲染、真实手势或键盘。脚本自动寻找现有 TypeScript；在其它机器无法自动找到时，可设置 `$env:TYPESCRIPT_PATH` 为已安装 TypeScript 模块目录。
 
 工程沿用脚手架。源码、资源、文档改动限定在 PlanerHarmony，未改动电脑端 Planer 源码。
 
@@ -157,20 +170,22 @@ node scripts/test-drag.mjs
 
 ## 测试与验证状态
 
-以下汇总此前已取得的业务结果与最新交互回归。2026-10-16 最新改为纯渐隐提示，并对齐首个分组文字与普通首卡顶边；分组标题采用紧凑排布；此前首位分组滚动归零、分组收拢与展开、截止日期提示和底部延展结果保留。本次未改动编辑器、业务模型和存储服务，未重跑它们此前通过的独立用例。详细范围见交互记录末尾。
+2026-10-20 将新手教程精简为首次打开的一页核心说明，取消逐步操作流程，支持设置回看；说明内容、首次使用标记与日程数据独立。简要说明测试 20 项、编辑回归 93 项、拖动回归 197 项均通过。此前渐隐提示、分组紧凑排布、收拢 / 展开、截止日期校验和底部延展结果保留。单页教程真机范围见 [简要说明验收记录](docs/QUICK-START-QA.md)，此前界面回归见交互记录。
 
 | 检查 | 结果与范围 |
 | --- | --- |
 | `node scripts/test-engine.mjs` | 此前 103 项断言通过，0 失败；本次未重跑 |
 | `node scripts/test-storage.mjs` | 此前 18 项断言通过；本次未重跑 |
-| `node scripts/test-editor.mjs` | 此前 93 项断言通过，本次未重跑；编辑草稿、删除摇摆清理、键盘避让，以及截止日期校验、重复点击与收起键盘后定位 |
+| `node scripts/test-editor.mjs` | 本轮 93 项断言通过；编辑草稿、删除摇摆清理、键盘避让，以及截止日期校验、重复点击与收起键盘后定位 |
 | `node scripts/test-drag.mjs` | 最新 197 项断言通过，含 240 种同列表插入边界组合；新增 26 项下方提示回归，覆盖末项裁切、底栏遮挡、页尾空白排除、索引兜底、状态去重与布局监听清理；保留既有拖动覆盖 |
-| 全项目 `check arkts` | 最新 20 个文件通过，0 error / 0 warning，包含分组收拢 / 展开组件 GroupDragVisual |
-| `check lint` | 最新 0 error / 4 warning；组件结构性能建议（新增 GroupDragVisual 一条），未禁用规则 |
+| `node scripts/test-tutorial.mjs` | 20 项断言通过：简要内容配置、首次显示、确认后不重复、旧教程状态迁移及 Preferences 异步写入与失败重试 |
+| 全项目 `check arkts` | 本轮 23 个文件通过，0 error，包含单页说明及独立 Preferences 服务 |
+| `check lint` | 本轮 0 error / 5 warning；均为自定义组件结构性能建议（含新 TutorialView 一条），未禁用规则 |
 | DevEco / Hvigor Local Test（Hypium） | 此前 5 个用例通过，BUILD SUCCESSFUL；本次未重跑 |
 | DevEco debug 构建 | 最终签名构建 BUILD SUCCESSFUL；输入控制器构造仍有 2 条系统能力提示，代码已按官方 SysCap 做运行时判断 |
 | 真机安装与启动 | 最新覆盖安装成功 / `Smoke: PASS`；保留现场当日 4 条、未来 2 条及用户当前分组，未按旧验收状态清理 |
-| 最新触控与截图验收 | 仅保留渐隐；开分组首标题文字与关分组首卡顶边均为 669px。删除按钮扩展范围和原地长按松手正常，分组开关已恢复；当日 4 条、未来 2 条及 1/4 状态保留，见截图 98–100 |
+| 单页教程验收（2026-10-20） | 首次五项核心说明同屏、开始 / 稍后关闭、设置回看均正常；最终覆盖安装并重新启动后不再自动弹出，见简要说明验收记录 |
+| 前轮触控与截图验收 | 仅保留渐隐；开分组首标题文字与关分组首卡顶边均为 669px。删除按钮扩展范围和原地长按松手正常，分组开关已恢复；当日 4 条、未来 2 条及 1/4 状态保留，见截图 98–100 |
 | 自然跨午夜 | 现场 2026-10-15→10-16 自动顺延，原三条未完成日程保留，未手动改日期 |
 | 6.1.1(24) 设备兼容 | 配置、API 版本保护与静态检查已落实，实际安装运行尚未验证 |
 

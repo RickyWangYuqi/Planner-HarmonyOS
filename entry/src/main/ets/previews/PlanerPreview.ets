@@ -27,7 +27,7 @@ function previewData(): AppData {
 }
 
 // 复用正式组件的无设备预览入口；样例仅驻留内存，不调用应用存储。
-@Preview({ title: 'Planer 手机组件', width: 390, height: 844, locale: 'zh_CN', deviceType: 'phone' })
+@Preview({ title: '序笺手机组件', width: 390, height: 844, locale: 'zh_CN', deviceType: 'phone' })
 @Component
 struct PlanerPreview {
   @State private data: AppData = previewData();

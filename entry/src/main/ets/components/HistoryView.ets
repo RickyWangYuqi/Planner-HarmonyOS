@@ -78,8 +78,10 @@ export struct HistoryView {
                           Text('计划 ' + formatFull(task.plannedDate)).fontSize(12).fontColor(this.palette.textSoft).width('100%')
                         }
                       }.layoutWeight(1)
+                      Row() {
                       IconButton({ icon: 'restore', label: '恢复日程', palette: this.palette,
                         onTap: () => this.onRestore(task, entry.date) })
+                      }.id('history-restore-' + task.id)
                       IconButton({ icon: 'trash', label: '永久删除历史日程', palette: this.palette,
                         onTap: () => this.onDelete(task, entry.date) })
                     }.width('100%').padding({ left: 12, right: 6, top: 12, bottom: 12 })
@@ -91,7 +93,7 @@ export struct HistoryView {
             }, (entry: HistoryEntry) => entry.date)
           }
         }.width('100%').padding({ left: 16, right: 16, top: this.safeTop + 72, bottom: 40 })
-      }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto).clip(false)
+      }.id('history-scroll').width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto).clip(false)
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .onAreaChange((_old: Area, area: Area) => { this.viewportHeight = Number(area.height); })
     }.width('100%').height('100%').backgroundColor(this.palette.bg)

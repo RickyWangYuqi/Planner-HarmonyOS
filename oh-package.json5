@@ -1,6 +1,6 @@
 {
   "modelVersion": "26.0.0",
-  "description": "Please describe the basic information.",
+  "description": "序笺 HarmonyOS 日程记录应用",
   "dependencies": {
   },
   "devDependencies": {

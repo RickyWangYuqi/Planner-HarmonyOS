@@ -528,7 +528,7 @@ export struct TaskEditor {
         (this.selectedGroup ? `${this.createdGroup === this.selectedGroup ? '已创建并选中' : '已选分组'}：${this.selectedGroup} · 随日程保存` : '当前未分组，可选择已有分组或新建'))
         .width('100%').fontSize(12).lineHeight(18).fontColor(this.selectedGroup ? this.palette.accent : this.palette.textSoft)
         .padding(12).borderRadius(12).backgroundColor(Materials.inset(this.palette, this.selectedGroup.length > 0))
-    }.width('100%').alignItems(HorizontalAlign.Start)
+    }.width('100%').alignItems(HorizontalAlign.Start).id('task-groups')
   }
 
   @Builder
@@ -550,7 +550,7 @@ export struct TaskEditor {
       if (this.progressEnabled) {
         Column({ space: 8 }) {
           Slider({ value: this.progressValue, min: 0, max: 100, step: 5, style: SliderStyle.OutSet })
-            .width('100%').selectedColor(this.palette.accent)
+            .width('100%').selectedColor(this.palette.accent).id('progress-slider')
             .onChange((value: number) => {
               this.progressValue = Math.round(value);
               this.progressDirty = true;
@@ -570,7 +570,7 @@ export struct TaskEditor {
           }.width('100%')
         }.width('100%').transition(Motion.reveal())
       }
-    }.width('100%')
+    }.width('100%').id('task-progress')
   }
 
   build() {

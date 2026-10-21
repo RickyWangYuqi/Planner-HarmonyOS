@@ -13,6 +13,7 @@ export struct SettingsView {
   scroller: Scroller = new Scroller();
   onAction: (action: AppAction) => void = (_action: AppAction): void => {};
   onHistory: () => void = (): void => {};
+  onTutorial: () => void = (): void => {};
   private presets: string[] = ['seasalt', 'forest', 'sunset', 'ink'];
   private rows: number[] = [0, 1];
 
@@ -135,7 +136,7 @@ export struct SettingsView {
         Column({ space: 14 }) {
           Text('主题模式').fontSize(13).fontColor(this.palette.textSoft).width('100%')
           ThemeModePicker({ selectedMode: this.data.settings.themeMode, palette: this.palette,
-            onSelect: (mode: string) => this.theme(mode) })
+            onSelect: (mode: string) => this.theme(mode) }).id('theme-modes')
           Divider().color(this.palette.border)
           Text('配色预设').fontSize(13).fontColor(this.palette.textSoft).width('100%')
           ForEach(this.rows, (row: number) => {
@@ -144,7 +145,7 @@ export struct SettingsView {
               this.presetCard(this.presets[row * 2 + 1])
             }.width('100%')
           }, (row: number) => row.toString())
-        }.padding(16).width('100%').borderRadius(16)
+        }.padding(16).width('100%').borderRadius(16).id('theme-presets')
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
         this.heading('数据与历史')
         Button({ type: ButtonType.Normal }) {
@@ -160,10 +161,23 @@ export struct SettingsView {
         }.padding(16).width('100%').borderRadius(16)
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
           .onClick(() => this.onHistory()).id('settings-history')
-        Text('Planer 日程便签 · 数据保存在本机，自动保存').fontSize(12).fontColor(this.palette.textFaint)
+        this.heading('帮助与使用')
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 12 }) {
+            PlanerIcon({ icon: 'history', color: this.palette.accent, iconSize: 25 })
+            Column({ space: 4 }) {
+              Text('新手教程').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text)
+              Text('一页了解核心功能，随时回看').fontSize(12).fontColor(this.palette.textSoft)
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            PlanerIcon({ icon: 'right', color: this.palette.textFaint, iconSize: 18 })
+          }.width('100%')
+        }.padding(16).width('100%').borderRadius(16)
+          .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
+          .onClick(() => this.onTutorial()).id('settings-tutorial')
+        Text($r('app.string.local_save_brand')).fontSize(12).fontColor(this.palette.textFaint)
           .textAlign(TextAlign.Center).width('100%').margin({ top: 10 })
       }.padding({ left: 16, right: 16, top: this.safeTop + 56, bottom: 100 }).width('100%')
-    }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto)
+    }.id('settings-scroll').width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(Color.Transparent).clip(false)
     }.width('100%').height('100%').backgroundColor(Color.Transparent)
       .mode(NavigationMode.Stack).hideBackButton(true).hideToolBar(true)
