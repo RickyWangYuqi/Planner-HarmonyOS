@@ -11,6 +11,12 @@ export struct PlanerIcon {
 
   private usesSymbol(): boolean {
     switch (this.icon) {
+      case 'pause':
+      case 'play':
+      case 'paused':
+      case 'continue':
+      case 'group':
+      case 'widget':
       case 'close':
       case 'back':
       case 'left':
@@ -40,6 +46,12 @@ export struct PlanerIcon {
 
   private symbolSource(): Resource {
     switch (this.icon) {
+      case 'pause': return $r('sys.symbol.pause');
+      case 'play': return $r('sys.symbol.play_fill');
+      case 'paused': return $r('sys.symbol.pause_circle_fill');
+      case 'continue': return $r('sys.symbol.arrow_right_circle');
+      case 'group': return $r('sys.symbol.folder');
+      case 'widget': return $r('sys.symbol.square_grid_2x2');
       case 'close': return $r('sys.symbol.xmark');
       case 'back':
       case 'left': return $r('sys.symbol.chevron_left');

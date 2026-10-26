@@ -15,6 +15,7 @@
     "abilities": [
       {
         "name": "EntryAbility",
+        "orientation": "auto_rotation",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
         "icon": "$media:planer_icon",
@@ -46,6 +47,21 @@
             "resource": "$profile:backup_config"
           }
         ],
+      },
+      {
+        // 桌面卡片提供方：长按应用图标后的“卡片”列表由系统托管，入口来自此扩展与 form_config。
+        "name": "EntryFormAbility",
+        "srcEntry": "./ets/entryformability/EntryFormAbility.ets",
+        "label": "$string:EntryFormAbility_label",
+        "description": "$string:EntryFormAbility_desc",
+        "type": "form",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
       }
     ]
   }

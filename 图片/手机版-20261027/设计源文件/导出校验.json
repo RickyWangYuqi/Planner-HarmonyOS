@@ -1,0 +1,65 @@
+[
+  {
+    "file": "01-今天与未来.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1062670,
+    "sha256": "E70F23B4219BAB0E37336BF25F46BCC3F059BA78AA8C7128F8EB113959E9AEE9"
+  },
+  {
+    "file": "02-周期打卡.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 818950,
+    "sha256": "9E250868A4843C1464F49BAFC39172CA88B22C97340B96467A9FD110C80BB7B8"
+  },
+  {
+    "file": "03-自动接续.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 911450,
+    "sha256": "F9AC877D43026EBBB53BA48A384EC4563CFF6D51451B9E2DF8A30DF01027CE5C"
+  },
+  {
+    "file": "04-打卡回顾.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 923088,
+    "sha256": "2F2F36577611068D9477E35C9FFE5EAB5C9D1551CF116EC12FF9B1E3F09A1768"
+  },
+  {
+    "file": "05-分组整理.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1032392,
+    "sha256": "7519171E7DD68E0DD139172C8CDAEA7854624F5C714ADEC2B964A34CB2096E9F"
+  },
+  {
+    "file": "06-记录进度.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 911485,
+    "sha256": "43F4CF18584FB9DAB4271A8616078CAC97DECCF8DC18E70CFCAC88892517CA41"
+  },
+  {
+    "file": "07-明暗主题.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1142050,
+    "sha256": "C7E342857FDD84AB84E2B87BB3DD46904D017555D1EBDCE983880972726707E9"
+  },
+  {
+    "file": "08-桌面组件.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1153784,
+    "sha256": "4616EDB153FEBCCC4C728733DD8B95CFD01752B64DD75CE86EF37F2F83197BC8"
+  },
+  {
+    "file": "00-总览.png",
+    "width": 2560,
+    "height": 1440,
+    "bytes": 929642,
+    "sha256": "9AF6F22B3A7F327EEF62E53A6863688643906A551541C7B28AF970302DD37EDB"
+  }
+]

@@ -47,7 +47,7 @@ const methodNames = ['tasks', 'currentIndex', 'currentTask', 'resetDrag', 'clear
   'pointerAtSlot', 'previewTaskAt', 'hoverGroup', 'hoverList', 'leaveDrag', 'dragBounds', 'insideDragList',
   'validDragSection', 'edgeVelocity', 'stopEdgeScroll', 'queueEdgeFrame', 'stepEdgeScroll', 'refreshDragTarget',
   'tabsBottomPadding', 'futureExtension', 'splitBaseHeight', 'clampSplitRatio', 'todayPaneHeight', 'futureDragBottom', 'updateFutureTailSpace',
-  'moreTasksBelow', 'recordVisibleItems', 'updateMoreBelow', 'moreHintVisible', 'startMoreObservation', 'stopMoreObservation', 'captureGroupMembers', 'groupLandingMembers', 'groupMemberSource', 'clearLandingLayout', 'refreshFinalDrop', 'clearFloating', 'floatingSource', 'floatingHeader', 'startFloating', 'updateFloating', 'moveFloating', 'floatingTouch', 'finishFloating'];
+  'moreTasksBelow', 'recordVisibleItems', 'updateMoreBelow', 'moreHintVisible', 'moreFadeHeight', 'startMoreObservation', 'stopMoreObservation', 'applyPendingAnchor', 'captureGroupMembers', 'groupLandingMembers', 'groupMemberSource', 'clearLandingLayout', 'refreshFinalDrop', 'clearFloating', 'floatingSource', 'floatingHeader', 'startFloating', 'updateFloating', 'moveFloating', 'floatingTouch', 'finishFloating'];
 const methods = methodNames.map(name => {
   const match = indexSource.match(new RegExp('^  private ' + name + '\\([^]*?\\n  \\}', 'm'));
   if (!match) throw new Error(`Index.${name} 结构已变化，请更新测试提取边界。`);
@@ -1245,8 +1245,8 @@ console.log('26) 两区提示、避让距离与状态去重');
   probe.floatingPhase = 'settling';
   const settling = probe.moreHintVisible('today');
   probe.floatingPhase = 'idle';
-  assert(!lifting && !dragging && !settling && probe.moreHintVisible('today') && probe.todayMoreBelow,
-    '拾起、跟手及落位期间暂隐提示，结束后恢复真实下溢状态');
+  assert(lifting && dragging && settling && probe.moreHintVisible('today') && probe.todayMoreBelow,
+    '拾起、跟手及落位期间保留原有渐隐，不因浮层阶段闪烁');
   probe.page = 1;
   probe.updateMoreBelow();
   assert(!probe.todayMoreBelow && !probe.futureMoreBelow && probe.futureMoreInset === 0,
@@ -1273,6 +1273,27 @@ console.log('26) 两区提示、避让距离与状态去重');
     '真实删除最后任务后清除旧提示，不受缓存下溢矩形影响');
 }
 
+console.log('拖动期间两区渐隐跟随真实可见内容');
+{
+  const probe = hintProbe();
+  probe.itemRect('today', 1, 180, 80);
+  probe.itemRect('future', 0, 180, 80);
+  for (const phase of ['lifting', 'dragging', 'settling', 'idle']) {
+    probe.floatingPhase = phase;
+    probe.updateMoreBelow();
+    if (!probe.moreHintVisible('today') || !probe.moreHintVisible('future')) throw new Error('拖动两区渐隐丢失: ' + phase);
+  }
+  assert(probe.todayMoreBelow && probe.futureMoreBelow, '四个拖动阶段均保持两区真实下溢渐隐');
+  const before = JSON.stringify(probe.data);
+  probe.floatingPhase = 'dragging';
+  probe.itemRect('today', 1, 120, 50);
+  probe.updateMoreBelow();
+  assert(!probe.moreHintVisible('today') && probe.moreHintVisible('future'), '拖动滚到当日底部后只移除当日渐隐');
+  probe.itemRect('future', 0, 100, 40);
+  probe.updateMoreBelow();
+  assert(!probe.moreHintVisible('today') && !probe.moreHintVisible('future'), '未来末项完整可见后不残留渐隐');
+  assert(JSON.stringify(probe.data) === before, '渐隐阶段与可见状态更新不派发排序或改动日程');
+}
 console.log('27) 下方提示布局观察与其他监听隔离');
 {
   const probe = hintProbe();
@@ -1291,4 +1312,20 @@ console.log('27) 下方提示布局观察与其他监听隔离');
   assert(probe.moreLayout === undefined && probe.layoutListeners.size === 1 && unrelated === 2 && probe.todayMoreBelow,
     '停止观察只注销提示自己的回调，后续布局不会再更新已卸载提示');
 }
+console.log('28) 渐隐范围覆盖完整视口并连续经过悬浮栏');
+{
+  const probe = hintProbe();
+  probe.todayHeight = 200; probe.futureHeight = 260; probe.futureMoreInset = 80;
+  assert(probe.moreFadeHeight('today') === 30 && probe.moreFadeHeight('future') === 110,
+    '两区渐隐从真实视口底边计算，未来包含浮栏遮挡段而不是在胶囊顶边截断');
+  probe.futureMoreInset = 260;
+  assert(probe.moreFadeHeight('future') === 260, '浮栏完全覆盖时蒙版限制在真实视口内，不压出父容器');
+  probe.todayHeight = 12;
+  assert(probe.moreFadeHeight('today') === 12, '极小分区仍保留合法渐隐范围');
+  probe.futureHeight = 0;
+  assert(probe.moreFadeHeight('future') === 0, '尚未挂载或已收起时不画出视口外的蒙版');
+  probe.futureHeight = 260; probe.futureMoreInset = 0;
+  assert(probe.moreFadeHeight('future') === 30, '旧版非悬浮栏无需额外遮挡段，继续使用普通底部渐隐');
+}
+
 console.log(`Index drag regression: ${passed} assertions passed (including 240 boundary combinations).`);

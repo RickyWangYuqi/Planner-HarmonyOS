@@ -33,6 +33,17 @@ export class PlanerStorage {
     }
   }
 
+  // 供主应用比对外部写入：卡片进程可能在后台勾选日程，不能直接用内存状态覆盖文件。
+  async readRaw(context: common.UIAbilityContext): Promise<string> {
+    const dataPath = context.filesDir + '/data.json';
+    try {
+      if (!(await fileIo.access(dataPath))) return '';
+      return await fileIo.readText(dataPath);
+    } catch (error) {
+      return '';
+    }
+  }
+
   async save(context: common.UIAbilityContext, data: AppData): Promise<void> {
     const dataPath = context.filesDir + '/data.json';
     if (this.loadedPath !== dataPath) {

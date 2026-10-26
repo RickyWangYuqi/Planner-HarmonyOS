@@ -1,0 +1,222 @@
+{
+  "canvas": [
+    2880,
+    1920
+  ],
+  "overview": [
+    2880,
+    1920
+  ],
+  "captureDate": "2026-10-27",
+  "captureStatus": "八张本版本 API 26 平板实拍已定稿，成品及总览已导出并完成视觉检查",
+  "captureType": "当前版本实机运行截图，裁去系统状态栏与手势区；不重绘 UI，不复用旧版界面截图",
+  "expectedDeviceScreen": [
+    2800,
+    1840
+  ],
+  "expectedCropBox": [
+    0,
+    88,
+    2800,
+    1777
+  ],
+  "expectedPublicScreenshotSize": [
+    2800,
+    1689
+  ],
+  "screenshotDirectory": "../原始截图",
+  "screenFrame": {
+    "left": 260,
+    "top": 360,
+    "width": 2360,
+    "contentWidth": 2328,
+    "contentHeight": 1404.282857
+  },
+  "overviewGrid": {
+    "columns": 4,
+    "rows": 2,
+    "thumbnailSize": [
+      624,
+      416
+    ]
+  },
+  "posters": [
+    {
+      "name": "01-双栏日程",
+      "screenshot": "01-双栏日程.png",
+      "title": "今天与未来，从容并行",
+      "subtitle": "左右分区，独立滚动，让每一项安排都清晰可见",
+      "tags": [
+        "双栏日程",
+        "分组整理",
+        "长按拖动"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "02-周期打卡",
+      "screenshot": "02-周期打卡.png",
+      "title": "每天一点点，让坚持有迹可循",
+      "subtitle": "多个计划，各按自己的节奏",
+      "tags": [
+        "周期计划",
+        "完成与撤销",
+        "独立统计"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "03-自动接续",
+      "screenshot": "03-自动接续.png",
+      "title": "记住这次，接好下一次",
+      "subtitle": "从背单词121–130到131–140，按周期自动接续",
+      "tags": [
+        "编号递增",
+        "区间接续",
+        "按周期生成"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "04-打卡回顾",
+      "screenshot": "04-打卡回顾.png",
+      "title": "走过的每一天，都有迹可循",
+      "subtitle": "日历补卡、提前完成，随时回看进度",
+      "tags": [
+        "日历补卡",
+        "提前完成",
+        "历史回顾"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "05-分组与进度",
+      "screenshot": "05-分组与进度.png",
+      "title": "有条理，也有进展",
+      "subtitle": "内容、分组与完成进度，在舒展的面板里各归其位",
+      "tags": [
+        "分组标签",
+        "进度记录",
+        "随手调整"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "06-未来安排",
+      "screenshot": "06-未来安排.png",
+      "title": "给未来，留一个位置",
+      "subtitle": "一边记录想法，一边安排日期，计划轻松成形",
+      "tags": [
+        "起始日期",
+        "截止日期",
+        "到期进入当日"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "07-个性设置",
+      "screenshot": "07-个性设置.png",
+      "title": "把顺手的方式，留给自己",
+      "subtitle": "显示习惯与外观主题分栏呈现，常用设置轻松找到",
+      "tags": [
+        "四种配色",
+        "明暗切换",
+        "按习惯显示"
+      ],
+      "theme": "light",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    },
+    {
+      "name": "08-深色主题",
+      "screenshot": "08-深色主题.png",
+      "title": "夜色里，依然清晰",
+      "subtitle": "柔和的深色与主题色，让计划保持自己的节奏",
+      "tags": [
+        "深色主题",
+        "跟随系统",
+        "主题配色"
+      ],
+      "theme": "dark",
+      "expectedScreenshotSize": [
+        2800,
+        1689
+      ]
+    }
+  ],
+  "requirements": {
+    "exactSize": [
+      2880,
+      1920
+    ],
+    "aspectRatio": "3:2",
+    "format": "PNG",
+    "maxImageBytesExclusive": 5000000
+  },
+  "deviceApi": 26,
+  "navigationStyle": "API 26 沉浸光感悬浮底栏",
+  "screenshotPreparation": {
+    "script": "准备截图.ps1",
+    "inputDirectory": ".tooling/store-tablet-20261027",
+    "inputNamePattern": "同名-full.png",
+    "method": "固定 HTML 视口，img 原尺寸 top=-88px，overflow:hidden",
+    "viewportSize": [
+      2800,
+      1689
+    ],
+    "sourceSize": [
+      2800,
+      1840
+    ],
+    "cropBox": [
+      0,
+      88,
+      2800,
+      1777
+    ],
+    "temporaryDirectory": ".tooling/tablet-posters-20261027-viewport"
+  },
+  "device": "HUAWEI MatePad Pro",
+  "osVersion": "API 26 (Release)",
+  "appVersion": "1.1.0",
+  "actualDeviceScreen": [
+    2800,
+    1840
+  ],
+  "actualCropBox": [
+    0,
+    88,
+    2800,
+    1777
+  ],
+  "actualPublicScreenshotSize": [
+    2800,
+    1689
+  ]
+}

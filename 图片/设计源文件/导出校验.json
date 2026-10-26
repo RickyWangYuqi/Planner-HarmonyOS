@@ -3,42 +3,49 @@
     "file": "00-总览.png",
     "width": 1920,
     "height": 1080,
-    "bytes": 596913,
-    "sha256": "f791ccfe4da75b4ece6031ed6454f19b973823a7336780b809d25387ac1e1145"
+    "bytes": 616571,
+    "sha256": "8befe32e85ebe309c426a71f1ebe71aff0216ca46dbf3446d3de8f78448df217"
   },
   {
     "file": "01-今天与未来.png",
     "width": 1440,
     "height": 2560,
-    "bytes": 1063062,
-    "sha256": "d27223bc0673da49011c7c769d5af2ec93b4049133d2e68157d174853fa9ebce"
+    "bytes": 1061111,
+    "sha256": "fd6d4d5d1b68d2bd85ba16710d26b6c1d32b832257b710752c59e7707b317398"
   },
   {
     "file": "02-分组整理.png",
     "width": 1440,
     "height": 2560,
-    "bytes": 1069910,
-    "sha256": "a09268bde8327d38010e67370887b9f1cc19426f39d73c690ce7e5c93e0258fc"
+    "bytes": 1062700,
+    "sha256": "77fdde6cc7bbaf019b50f569f2aea0c0d04a1217f75b07a4aaeb29c13b8462e6"
   },
   {
     "file": "03-记录进度.png",
     "width": 1440,
     "height": 2560,
-    "bytes": 960409,
-    "sha256": "0b7cf82fc95d80039d0af912638a726fbedeaf6cb463f54c3e251341228c9a5c"
+    "bytes": 911198,
+    "sha256": "21092a76c6e51f7e3f91e16d30d27dd57f7278f5d1de95221bb5434962977539"
   },
   {
     "file": "04-历史回顾.png",
     "width": 1440,
     "height": 2560,
-    "bytes": 922894,
-    "sha256": "1f12b5ed8ca3ec1e867b51c3980bdcd036a127014bbe6dc8e561f869a31f0af7"
+    "bytes": 920625,
+    "sha256": "29e0292470d58902bcac52fed5c9128725688dde5febe8396fd2520ada0eec71"
   },
   {
     "file": "05-明暗主题.png",
     "width": 1440,
     "height": 2560,
-    "bytes": 1141579,
-    "sha256": "6e4a318f9fd586eb280eec6667404664fc738ee206196e436958b5f042e1cfdd"
+    "bytes": 1140920,
+    "sha256": "896044a28279b294d5967b68f471a80ec817e1eea66a2d4a3b6cde59691750a6"
+  },
+  {
+    "file": "06-桌面组件.png",
+    "width": 1440,
+    "height": 2560,
+    "bytes": 1153484,
+    "sha256": "349280b86620256195c658056a085d0239ceadb7e859e99ca7dd17e077337d05"
   }
 ]

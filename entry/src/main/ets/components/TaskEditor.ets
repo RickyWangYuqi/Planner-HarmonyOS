@@ -1,11 +1,14 @@
+import { ResponsiveLayout } from '../theme/ResponsiveLayout';
 import { window } from '@kit.ArkUI';
 import { AppAction, AppData, Task } from '../model/PlanerModel';
 import { addDays } from '../model/PlanerEngine';
 import { Palette } from '../theme/Theme';
-import { Materials, Motion } from '../theme/Appearance';
+import { Materials, Motion, PlanerControlModifier, ButtonFeedback } from '../theme/Appearance';
 import { PlanerCalendar } from './CalendarPicker';
 import { IconButton } from './IconButton';
 import { PlanerIcon } from './PlanerIcon';
+import { MaterialButtonScope } from './MaterialButtonScope';
+import { EditorMaterialRefresh, MaterialSection } from './MaterialSection';
 
 @Component
 export struct TaskEditor {
@@ -20,9 +23,11 @@ export struct TaskEditor {
   onClose: () => void = (): void => {};
   onDelete: () => void = (): void => {};
   @State private content: string = '';
+  @State private pressedButton: string = '';
   @State private startDate: string = '';
   @State private dueDate: string = '';
   @State private dueDateError: string = '';
+  @State private dateField: string = 'due';
   @State private selectedGroup: string = '';
   @State private draftGroups: string[] = [];
   @State private deletedGroups: string[] = [];
@@ -36,6 +41,7 @@ export struct TaskEditor {
   private deleteShakeTimer: number = -1;
   private deleteShakeDirection: number = 1;
   private editorActive: boolean = false;
+  @State private editorWidth: number = 0;
   @State private keyboardInset: number = 0;
   private editorWindow: window.Window | undefined = undefined;
   private keyboardObserverVersion: number = 0;
@@ -49,7 +55,7 @@ export struct TaskEditor {
   private groupController: TextInputController | undefined = undefined;
   private editorBottomVp: number = 0;
   private rootAreaKnown: boolean = false;
-  private focusedInput: string = '';
+  @State private focusedInput: string = '';
   private keyboardListener: (height: number) => void = (height: number): void => {
     if (!this.editorActive) return;
     this.keyboardHeightPx = Math.max(0, height);
@@ -86,10 +92,24 @@ export struct TaskEditor {
 
   aboutToDisappear(): void {
     this.editorActive = false;
+    this.pressedButton = '';
     this.cancelDueDateScroll();
     this.stopKeyboardObserver();
     this.stopDeleteShake();
   }
+
+  private buttonTouch(id: string, event: TouchEvent): void {
+    const next = ButtonFeedback.next(this.pressedButton, id, event.type);
+    if (next === this.pressedButton) return;
+    this.getUIContext().animateTo(Motion.quick(), (): void => { this.pressedButton = next; });
+  }
+
+  private releaseButtonPress(): void {
+    // 在打开/关闭面板的业务回调前同步复位，不依赖原生按压层收到后续 Up。
+    this.getUIContext().animateTo({ duration: 0 }, (): void => { this.pressedButton = ''; });
+  }
+
+  private buttonScale(id: string): number { return ButtonFeedback.scale(this.pressedButton, id); }
 
   private async observeKeyboard(): Promise<void> {
     const context = this.getUIContext().getHostContext();
@@ -127,6 +147,8 @@ export struct TaskEditor {
   }
 
   private updateEditorArea(area: Area): void {
+    const width = Number(area.width);
+    if (Number.isFinite(width) && width > 0) this.editorWidth = width;
     const bottom = Number(area.globalPosition.y) + Number(area.height);
     if (!this.editorActive || !Number.isFinite(bottom)) return;
     this.editorBottomVp = bottom;
@@ -254,6 +276,8 @@ export struct TaskEditor {
   }
 
   private showDueDateError(): void {
+    // 日期区域共用一个日历；校验失败时先切回必选的截止日期。
+    this.dateField = 'due';
     const earliest = this.startDate > this.minDate() ? this.startDate : this.minDate();
     this.dueDateError = this.dueDate ? `请选择有效的截止日期，不能早于 ${earliest}。` : '请选择截止日期后再提交。';
     if (this.dueDateScrollPending || this.dueDateScrollAnimating) return;
@@ -413,6 +437,41 @@ export struct TaskEditor {
     if (this.validDueDate()) this.clearDueDateError();
   }
 
+  private dateFieldText(field: string): string {
+    // Builder 内直接读当前状态，不把初始空日期按普通参数捕获为永久占位文案。
+    const value = field === 'start' ? this.startDate : this.dueDate;
+    return value || (field === 'start' ? '默认次日' : '请选择日期');
+  }
+
+  private selectDateField(field: string): void {
+    if (field !== 'start' && field !== 'due') return;
+    this.contentController?.stopEditing();
+    this.groupController?.stopEditing();
+    this.focusedInput = '';
+    this.getUIContext().getFocusController().clearFocus();
+    this.getUIContext().animateTo(Motion.quick(), () => { this.dateField = field; });
+  }
+
+  private calendarValue(): string {
+    return this.dateField === 'start' ? this.startDate : this.dueDate;
+  }
+
+  private calendarMinimum(): string {
+    return this.dateField === 'start' ? this.minDate() : (this.startDate || this.minDate());
+  }
+
+  private selectCalendarDate(key: string): void {
+    if (this.dateField === 'start') this.pickStart(key);
+    else this.pickDue(key);
+  }
+
+  private clearStartDate(): void {
+    this.getUIContext().animateTo(Motion.quick(), () => {
+      this.startDate = '';
+      if (this.validDueDate()) this.clearDueDateError();
+    });
+  }
+
   private submit(): void {
     if (!this.canAttemptSubmit()) return;
     if (!this.canSubmit()) {
@@ -448,36 +507,127 @@ export struct TaskEditor {
   }
 
   @Builder
-  private label(text: string) {
-    Text(text).width('100%').fontSize(13).fontWeight(FontWeight.Medium).fontColor(this.palette.textSoft)
+  private sectionHeading(title: string, hint: string = '') {
+    Row({ space: 8 }) {
+      Text(title).fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.text).layoutWeight(1)
+      if (hint) {
+        Text(hint).fontSize(11).fontColor(this.palette.textFaint)
+      }
+    }.width('100%')
+  }
+
+  private groupChipWidth(group: string): number {
+    const measured = this.getUIContext().getMeasureUtils().measureTextSize({
+      textContent: group || '未分组', fontSize: 13, fontWeight: FontWeight.Medium
+    });
+    return Math.max(60, Math.min(230, this.getUIContext().px2vp(Number(measured.width)) + 28));
+  }
+
+  @Builder
+  private groupLabelButton(group: string) {
+    Button(group || '未分组', { type: ButtonType.Normal, stateEffect: false })
+      .width('100%').height(44).borderRadius(12).fontSize(13).padding({ left: 13, right: 13 })
+      .fontColor(this.deleteMode === group && group ? this.palette.danger :
+        (this.selectedGroup === group ? this.palette.accent : this.palette.textSoft))
+      .attributeModifier(new PlanerControlModifier(this.palette, this.selectedGroup === group,
+        this.deleteMode === group && group.length > 0, true, BorderStyle.Solid))
+      .scale({ x: this.buttonScale('group:' + group), y: this.buttonScale('group:' + group) })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('group:' + group, event))
+      .onClick(() => { this.releaseButtonPress(); this.pickGroup(group); })
+      .gesture(LongPressGesture({ repeat: false, duration: 520 }).onAction(() => {
+        if (group) this.animateGroup(() => { this.deleteMode = group; });
+      }))
+  }
+
+  @Builder
+  private groupDeleteButton(group: string) {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      PlanerIcon({ icon: 'close', color: this.palette.danger, iconSize: 14 })
+    }.width(24).height(24).padding(0).borderRadius(8)
+      .attributeModifier(new PlanerControlModifier(this.palette, false, true))
+      .responseRegion({ x: -10, y: -10, width: 44, height: 44 })
+      .id('icon-close-删除分组' + group).accessibilityText('删除分组' + group)
+      .scale({ x: this.buttonScale('delete-group:' + group), y: this.buttonScale('delete-group:' + group) })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('delete-group:' + group, event))
+      .onClick(() => { this.releaseButtonPress(); this.removeGroup(group); })
+  }
+
+  @Builder
+  private groupCreateButton() {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      Row({ space: 6 }) {
+        PlanerIcon({ icon: 'plus', color: this.palette.accent, iconSize: 16 })
+        Text('新建分组').fontSize(13).fontColor(this.palette.accent)
+      }
+    }.id('group-create').width('100%').height(44).borderRadius(12)
+      .attributeModifier(new PlanerControlModifier(this.palette, this.creatingGroup, false, true, BorderStyle.Dashed))
+      .padding({ left: 13, right: 13 }).scale({ x: this.buttonScale('group-create'), y: this.buttonScale('group-create') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('group-create', event))
+      .onClick(() => { this.releaseButtonPress(); this.openGroupForm(); })
+  }
+
+  @Builder
+  private groupCancelButton() {
+    Button('取消', { type: ButtonType.Normal, stateEffect: false }).height(44).width('100%').fontSize(13)
+      .fontColor(this.palette.textSoft).attributeModifier(new PlanerControlModifier(this.palette)).borderRadius(12)
+      .scale({ x: this.buttonScale('group-cancel'), y: this.buttonScale('group-cancel') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('group-cancel', event))
+      .onClick(() => { this.releaseButtonPress(); this.animateGroup(() => { this.creatingGroup = false; }); })
+  }
+
+  @Builder
+  private groupConfirmButton() {
+    Button(this.groups().includes(this.groupName.trim()) ? '选用分组' : '创建并选中', { type: ButtonType.Normal, stateEffect: false }).id('group-confirm')
+      .height(44).width('100%').fontSize(13).fontColor(this.palette.accent)
+      .attributeModifier(new PlanerControlModifier(this.palette, true)).borderRadius(12).enabled(this.groupName.trim().length > 0)
+      .scale({ x: this.buttonScale('group-confirm'), y: this.buttonScale('group-confirm') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('group-confirm', event))
+      .onClick(() => { this.releaseButtonPress(); this.createGroup(); })
+  }
+
+  @Builder
+  private taskCancelButton() {
+    Button('取消', { type: ButtonType.Normal, stateEffect: false }).id('task-cancel').width('100%').height(46).fontSize(15).borderRadius(12)
+      .fontColor(this.palette.textSoft).attributeModifier(new PlanerControlModifier(this.palette))
+      .scale({ x: this.buttonScale('task-cancel'), y: this.buttonScale('task-cancel') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('task-cancel', event))
+      .onClick(() => { this.releaseButtonPress(); this.deleteMode = ''; this.cancelDueDateScroll(); this.onClose(); })
+  }
+
+  @Builder
+  private taskSubmitButton() {
+    Button(this.mode === 'move' ? '确认移动' : (this.mode === 'edit' ? '保存' : '添加'), { type: ButtonType.Normal, stateEffect: false }).id('task-submit')
+      .width('100%').height(46).fontSize(15).fontWeight(FontWeight.Medium).borderRadius(12)
+      .fontColor(this.palette.accent).attributeModifier(new PlanerControlModifier(this.palette, true))
+      .enabled(this.canAttemptSubmit())
+      .opacity(this.canAttemptSubmit() ? 1 : 0.45).scale({ x: this.buttonScale('task-submit'), y: this.buttonScale('task-submit') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('task-submit', event))
+      .onClick(() => { this.releaseButtonPress(); this.submit(); })
+  }
+
+  @Builder
+  private taskDeleteButton() {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      Row({ space: 8 }) {
+        PlanerIcon({ icon: 'trash', color: this.palette.danger, iconSize: 20 })
+        Text('删除日程').fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.danger)
+      }.justifyContent(FlexAlign.Center)
+    }.id('task-delete').width('100%').height(44).borderRadius(12)
+      .attributeModifier(new PlanerControlModifier(this.palette, false, true)).accessibilityText('删除日程')
+      .scale({ x: this.buttonScale('task-delete'), y: this.buttonScale('task-delete') })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('task-delete', event))
+      .onClick(() => { this.releaseButtonPress(); this.deleteMode = ''; this.cancelDueDateScroll(); this.onDelete(); })
   }
 
   @Builder
   private groupChip(group: string) {
     Stack({ alignContent: Alignment.TopEnd }) {
-      Button(group || '未分组', { type: ButtonType.Normal })
-        .constraintSize({ maxWidth: 230 }).height(44).fontSize(13).padding({ left: 13, right: 13 })
-        .fontColor(this.deleteMode === group && group ? this.palette.danger :
-          (this.selectedGroup === group ? this.palette.accent : this.palette.textSoft))
-        .backgroundColor(Materials.inset(this.palette, this.selectedGroup === group, this.deleteMode === group && group.length > 0))
-        .border({ width: 1, radius: 12, color: this.deleteMode === group && group ? this.palette.danger :
-          (this.selectedGroup === group ? this.palette.accent : this.palette.border) })
+      MaterialButtonScope({ palette: this.palette, content: () => { this.groupLabelButton(group); } }).width(this.groupChipWidth(group)).height(44)
         .rotate({ angle: this.deleteMode === group && group ? this.deleteShakeAngle : 0 })
-        .margin({ top: 12, right: 12 })
-        .onClick(() => this.pickGroup(group))
-        .gesture(LongPressGesture({ repeat: false, duration: 520 }).onAction(() => {
-          if (group) this.animateGroup(() => { this.deleteMode = group; });
-        }))
+        .margin({ top: 8, right: 8 })
       if (this.deleteMode === group && group) {
-        Button({ type: ButtonType.Normal }) {
-          PlanerIcon({ icon: 'close', color: this.palette.danger, iconSize: 14 })
-        }.width(24).height(24).padding(0).backgroundColor(this.palette.dangerSoft)
-          .border({ width: 1, color: this.palette.panel, radius: 8 })
-          .position({ top: 0, right: 0 })
-          .responseRegion({ x: -10, y: -10, width: 44, height: 44 })
-          .id('icon-close-删除分组' + group).accessibilityText('删除分组' + group)
-          .onClick(() => this.removeGroup(group))
-          .transition(Motion.reveal())
+        MaterialButtonScope({ palette: this.palette, controlHeight: 24, radius: 8, content: () => { this.groupDeleteButton(group); } }).width(24).height(24)
+          .position({ top: 0, right: 0 }).transition(Motion.reveal())
       }
     }.margin({ right: 6, bottom: 6 }).clip(false)
       .transition(Motion.reveal())
@@ -491,16 +641,8 @@ export struct TaskEditor {
         ForEach(this.groups(), (group: string) => {
           this.groupChip(group)
         }, (group: string) => group)
-        Button({ type: ButtonType.Normal }) {
-          Row({ space: 6 }) {
-            PlanerIcon({ icon: 'plus', color: this.palette.accent, iconSize: 16 })
-            Text('新建分组').fontSize(13).fontColor(this.palette.accent)
-          }
-        }.id('group-create').height(44).backgroundColor(Color.Transparent)
-          .border({ width: 1, color: this.creatingGroup ? this.palette.accent : this.palette.border,
-            style: BorderStyle.Dashed, radius: 12 })
-          .padding({ left: 13, right: 13 }).margin({ top: 12, right: 6, bottom: 6 })
-          .onClick(() => this.openGroupForm())
+        MaterialButtonScope({ palette: this.palette, content: () => { this.groupCreateButton(); } }).width(this.groupChipWidth('新建分组') + 22).height(44)
+          .margin({ top: 8, right: 6, bottom: 6 })
       }.width('100%').padding({ top: 2, right: 2, bottom: 2, left: 2 }).clip(false)
       if (this.creatingGroup) {
         Column({ space: 8 }) {
@@ -514,28 +656,37 @@ export struct TaskEditor {
           Text('填写名称后，可创建并选中，也可随日程一起保存。')
             .width('100%').fontSize(12).lineHeight(18).fontColor(this.palette.textSoft)
           Row({ space: 8 }) {
-            Button('取消', { type: ButtonType.Normal }).height(44).layoutWeight(1).fontSize(13)
-              .fontColor(this.palette.textSoft).backgroundColor(Materials.inset(this.palette)).borderRadius(12)
-              .onClick(() => this.animateGroup(() => { this.creatingGroup = false; }))
-            Button(this.groups().includes(this.groupName.trim()) ? '选用分组' : '创建并选中', { type: ButtonType.Normal }).id('group-confirm')
-              .height(44).layoutWeight(2).fontSize(13).fontColor(this.palette.accent)
-              .backgroundColor(Materials.inset(this.palette, true)).borderRadius(12).enabled(this.groupName.trim().length > 0)
-              .onClick(() => this.createGroup())
+            MaterialButtonScope({ palette: this.palette, content: () => { this.groupCancelButton(); } }).layoutWeight(1).height(44)
+            MaterialButtonScope({ palette: this.palette, content: () => { this.groupConfirmButton(); } }).layoutWeight(2).height(44)
           }.width('100%')
         }.transition(Motion.reveal())
       }
       Text(this.deleteMode ? `点击叉号删除“${this.deleteMode}”，组内日程会移入未分组。再次点击标签取消删除。` :
         (this.selectedGroup ? `${this.createdGroup === this.selectedGroup ? '已创建并选中' : '已选分组'}：${this.selectedGroup} · 随日程保存` : '当前未分组，可选择已有分组或新建'))
         .width('100%').fontSize(12).lineHeight(18).fontColor(this.selectedGroup ? this.palette.accent : this.palette.textSoft)
-        .padding(12).borderRadius(12).backgroundColor(Materials.inset(this.palette, this.selectedGroup.length > 0))
     }.width('100%').alignItems(HorizontalAlign.Start).id('task-groups')
+  }
+
+  @Builder
+  private progressStopButton(value: number) {
+    Button(`${value}%`, { type: ButtonType.Normal, stateEffect: false }).id('progress-' + value.toString()).width('100%').height(44).padding(0).fontSize(12)
+      .borderRadius(12).fontColor(this.progressValue === value ? this.palette.accent : this.palette.textSoft)
+      .attributeModifier(new PlanerControlModifier(this.palette, this.progressValue === value))
+      .scale({ x: this.buttonScale('progress:' + value.toString()), y: this.buttonScale('progress:' + value.toString()) })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('progress:' + value.toString(), event))
+      .onClick(() => { this.releaseButtonPress();
+        this.getUIContext().animateTo(Motion.quick(), () => {
+          this.progressValue = value;
+          this.progressDirty = true;
+        });
+      })
   }
 
   @Builder
   private progressEditor() {
     Column({ space: 8 }) {
       Row() {
-        Text('完成进度').fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.textSoft)
+        Text('完成进度').fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.text)
         Text(this.progressEnabled ? `${this.progressValue}%` : '未设置').fontSize(13)
           .fontColor(this.progressEnabled ? this.palette.accent : this.palette.textFaint).margin({ left: 8 }).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.progressEnabled }).id('progress-enable').selectedColor(this.palette.accent)
@@ -557,15 +708,8 @@ export struct TaskEditor {
             })
           Row({ space: 5 }) {
             ForEach(this.progressStops, (value: number) => {
-              Button(`${value}%`, { type: ButtonType.Normal }).id('progress-' + value.toString()).layoutWeight(1).height(44).padding(0).fontSize(12)
-                .borderRadius(12).fontColor(this.progressValue === value ? this.palette.accent : this.palette.textSoft)
-                .backgroundColor(Materials.inset(this.palette, this.progressValue === value))
-                .onClick(() => {
-                  this.getUIContext().animateTo(Motion.quick(), () => {
-                    this.progressValue = value;
-                    this.progressDirty = true;
-                  });
-                })
+              MaterialButtonScope({ palette: this.palette, content: () => { this.progressStopButton(value); } })
+                .layoutWeight(1).height(44)
             }, (value: number) => value.toString())
           }.width('100%')
         }.width('100%').transition(Motion.reveal())
@@ -573,93 +717,193 @@ export struct TaskEditor {
     }.width('100%').id('task-progress')
   }
 
+  @Builder
+  private contentSection() {
+    MaterialSection({ palette: this.palette, content: () => { this.contentSectionBody(); } }).width('100%')
+  }
+
+  @Builder
+  private dateSection() {
+    MaterialSection({ palette: this.palette, content: () => { this.dateSectionBody(); } }).width('100%')
+  }
+
+  @Builder
+  private groupSection() {
+    MaterialSection({ palette: this.palette, content: () => { this.groupSectionBody(); } }).width('100%')
+  }
+
+  @Builder
+  private progressSection() {
+    MaterialSection({ palette: this.palette, content: () => { this.progressSectionBody(); } }).width('100%')
+  }
+
+  @Builder
+  private dangerSection() {
+    MaterialSection({ palette: this.palette, danger: true, content: () => { this.dangerSectionBody(); } }).width('100%').margin({ top: 4 })
+  }
+
+  @Builder
+  private contentSectionBody() {
+    Column({ space: 10 }) {
+      this.sectionHeading('日程内容', '必填')
+      if (this.mode === 'move') {
+        Text(this.content).width('100%').fontSize(16).lineHeight(24).fontColor(this.palette.text).padding(12)
+          .borderRadius(12).backgroundColor(Materials.inset(this.palette))
+        Text(this.task && this.task.dueDate ? '已填入保留的时间区间，可在下方调整。' : '设置时间区间，也可只填截止日期。')
+          .width('100%').fontSize(12).lineHeight(18).fontColor(this.palette.textSoft)
+      } else {
+        TextArea({ text: this.content, placeholder: this.section === 'today' ? '今天要做点什么…' : '计划做点什么…', controller: this.contentController }).id('task-content')
+          .width('100%').height(96).padding(12).fontSize(16).fontColor(this.palette.text)
+          .backgroundColor(Materials.input(this.palette)).borderRadius(12).placeholderColor(this.palette.textSoft)
+          .border({ width: 1, radius: 12, color: this.focusedInput === 'task-content' ? this.palette.accent : this.palette.border })
+          .onFocus(() => this.focusInput('task-content'))
+          .onBlur(() => this.blurInput('task-content'))
+          .onChange((text: string) => this.content = text)
+      }
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private dateFieldButton(field: string, title: string) {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      Column({ space: 6 }) {
+        Text(title).fontSize(12).fontColor(this.palette.textSoft)
+        Text(this.dateFieldText(field)).fontSize(14).fontWeight(FontWeight.Medium).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor(field === 'due' && this.dueDateError ? this.palette.danger :
+            (this.dateField === field ? this.palette.accent : this.palette.text))
+      }.width('100%').alignItems(HorizontalAlign.Start)
+    }.layoutWeight(1).height(76).padding(12).borderRadius(12)
+      .backgroundColor(Materials.inset(this.palette, this.dateField === field))
+      .border({ width: 1, radius: 12, color: field === 'due' && this.dueDateError ? this.palette.danger :
+        (this.dateField === field ? this.palette.accent : this.palette.border) })
+      .id('date-' + field + '-field').accessibilityText(title + '，' + this.dateFieldText(field))
+      .scale({ x: this.buttonScale('date:' + field), y: this.buttonScale('date:' + field) })
+      .onTouch((event: TouchEvent): void => this.buttonTouch('date:' + field, event))
+      .onClick(() => { this.releaseButtonPress(); this.selectDateField(field); })
+  }
+
+  @Builder
+  private dateSectionBody() {
+    Column({ space: 10 }) {
+      this.sectionHeading('时间安排', '起始可选 · 截止必选')
+      Row({ space: 8 }) {
+        this.dateFieldButton('start', '起始日期')
+        this.dateFieldButton('due', '截止日期')
+      }.width('100%')
+      if (this.dueDateError) {
+        Text(this.dueDateError).id('due-date-error').width('100%').fontSize(12).lineHeight(18)
+          .fontColor(this.palette.danger).accessibilityText(this.dueDateError)
+      }
+      Row() {
+        Text(this.dateField === 'start' ? '选择起始日期' : '选择截止日期')
+          .fontSize(12).fontColor(this.palette.textSoft).layoutWeight(1)
+        if (this.dateField === 'start' && this.startDate) {
+          Button('清除起始日期', { type: ButtonType.Normal, stateEffect: false }).height(32).fontSize(12).borderRadius(10)
+            .responseRegion({ x: 0, y: -6, width: '100%', height: 44 })
+            .fontColor(this.palette.accent).backgroundColor(Color.Transparent)
+            .scale({ x: this.buttonScale('clear-start'), y: this.buttonScale('clear-start') })
+            .onTouch((event: TouchEvent): void => this.buttonTouch('clear-start', event))
+            .onClick(() => { this.releaseButtonPress(); this.clearStartDate(); })
+        }
+      }.width('100%').height(32)
+      PlanerCalendar({ compact: ResponsiveLayout.editorColumns(this.editorWidth), value: this.calendarValue(), minDate: this.calendarMinimum(), palette: this.palette,
+        onSelect: (key: string) => this.selectCalendarDate(key) })
+    }.id('task-due-date').width('100%').padding(14)
+      .alignItems(HorizontalAlign.Start)
+      .onAreaChange(() => this.scheduleDueDateScroll())
+  }
+
+  @Builder
+  private groupSectionBody() {
+    Column({ space: 4 }) {
+      this.sectionHeading('分组', '可选')
+      this.groupPicker()
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private progressSectionBody() {
+    Column({ space: 8 }) {
+      this.progressEditor()
+      if (this.section === 'today' && this.task && this.task.dueDate) {
+        Text('该日程保留原时间区间，此处不修改日期。').width('100%').fontSize(12).lineHeight(18)
+          .fontColor(this.palette.textFaint)
+      }
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private dangerSectionBody() {
+    Column({ space: 10 }) {
+      this.sectionHeading('日程管理', '删除后无法恢复')
+      // 删除保留在编辑页末尾，确认和持久化仍由宿主处理。
+      MaterialButtonScope({ palette: this.palette, content: () => { this.taskDeleteButton(); } }).width('100%').height(44)
+    }.width('100%').padding(14)
+  }
+
   build() {
     Column({ space: 0 }) {
       Row({ space: 8 }) {
-        Text(this.title()).fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.palette.text).layoutWeight(1)
+        Column({ space: 4 }) {
+          Text(this.title()).fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.palette.text)
+          Text(this.mode === 'move' ? '保留日程内容，重新安排日期' :
+            (this.hasDates() ? '起始日期可选，截止日期必选' : '记录今天要完成的事'))
+            .fontSize(12).fontColor(this.palette.textSoft)
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         IconButton({ icon: 'close', palette: this.palette, label: '取消编辑', onTap: () => { this.deleteMode = ''; this.cancelDueDateScroll(); this.onClose(); } })
-      }.width('100%').padding({ left: 20, right: 12, top: 8, bottom: 8 })
+      }.width('100%').padding({ left: 20, right: 12, top: 12, bottom: 12 })
       Divider().color(this.palette.border)
       Scroll(this.scroller) {
-        Column({ space: 12 }) {
-          this.label('日程内容')
-          if (this.mode === 'move') {
-            Text(this.content).width('100%').fontSize(16).fontColor(this.palette.text).padding(12)
-              .borderRadius(12).backgroundColor(Materials.inset(this.palette))
-            Text(this.task && this.task.dueDate ? '已自动填入保留的时间区间，可修改。' : '请设置时间区间，可只填截止日期。')
-              .width('100%').fontSize(13).fontColor(this.palette.textSoft)
+        Column({ space: 16 }) {
+          if (ResponsiveLayout.editorColumns(this.editorWidth)) {
+            Row({ space: 20 }) {
+              Column({ space: 16 }) {
+                this.contentSection()
+                if (this.data.settings.showGroups && this.mode !== 'move') { this.groupSection() }
+                if (this.mode === 'edit' && this.hasDates()) {
+                  this.progressSection()
+                  this.dangerSection()
+                }
+              }.layoutWeight(1)
+              if (this.hasDates()) {
+                Column() { this.dateSection() }.layoutWeight(1)
+              } else if (this.mode === 'edit') {
+                Column({ space: 16 }) {
+                  this.progressSection()
+                  this.dangerSection()
+                }.layoutWeight(1)
+              }
+            }.width('100%').alignItems(VerticalAlign.Top).id('wide-editor-columns')
           } else {
-            TextArea({ text: this.content, placeholder: this.section === 'today' ? '今天要做点什么…' : '计划做点什么…', controller: this.contentController }).id('task-content')
-              .width('100%').height(90).fontSize(16).fontColor(this.palette.text)
-              .backgroundColor(Materials.inset(this.palette)).borderRadius(12)
-              .onFocus(() => this.focusInput('task-content'))
-              .onBlur(() => this.blurInput('task-content'))
-              .onChange((text: string) => this.content = text)
+          this.contentSection()
+          if (this.hasDates()) {
+            this.dateSection()
           }
           if (this.data.settings.showGroups && this.mode !== 'move') {
-            this.label('分组')
-            this.groupPicker()
-          }
-          if (this.hasDates()) {
-            Row() {
-              Text('起始日期（可不填，默认次日）').fontSize(13).fontColor(this.palette.textSoft).layoutWeight(1)
-              if (this.startDate) {
-                Button('清除', { type: ButtonType.Normal }).height(44).fontSize(12).borderRadius(12)
-                  .fontColor(this.palette.accent).backgroundColor(Color.Transparent)
-                  .onClick(() => this.getUIContext().animateTo(Motion.quick(), () => { this.startDate = ''; }))
-              }
-            }.width('100%')
-            PlanerCalendar({ value: this.startDate, minDate: this.minDate(), palette: this.palette,
-              onSelect: (key: string) => this.pickStart(key) })
-            Column({ space: 8 }) {
-              this.label('截止日期（必选）')
-              if (this.dueDateError) {
-                Text(this.dueDateError).id('due-date-error').width('100%').fontSize(13).lineHeight(19)
-                  .fontColor(this.palette.danger).accessibilityText(this.dueDateError)
-              }
-              PlanerCalendar({ value: this.dueDate, minDate: this.startDate || this.minDate(), palette: this.palette,
-                onSelect: (key: string) => this.pickDue(key) })
-            }.id('task-due-date').width('100%').alignItems(HorizontalAlign.Start)
-              .onAreaChange(() => this.scheduleDueDateScroll())
+            this.groupSection()
           }
           if (this.mode === 'edit') {
-            this.progressEditor()
-            if (this.section === 'today' && this.task && this.task.dueDate) {
-              Text('该日程保留隐藏的时间区间，此处不可修改。').width('100%').fontSize(12)
-                .fontColor(this.palette.textFaint)
-            }
+            this.progressSection()
+            this.dangerSection()
           }
-        }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 20 })
+          }
+        }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 24 })
           .alignItems(HorizontalAlign.Start)
       }.id('task-editor-scroll').layoutWeight(1).width('100%').align(Alignment.TopStart).scrollBar(BarState.Auto)
         .onAreaChange(() => this.editorViewportChanged())
+        .onDidScroll(() => EditorMaterialRefresh.request(this.getUIContext()))
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       Divider().color(this.palette.border)
-      Column({ space: 8 }) {
-        Row({ space: 10 }) {
-          Button('取消', { type: ButtonType.Normal }).id('task-cancel').layoutWeight(1).height(46).fontSize(15).borderRadius(12)
-            .fontColor(this.palette.textSoft).backgroundColor(Materials.inset(this.palette))
-            .onClick(() => { this.deleteMode = ''; this.cancelDueDateScroll(); this.onClose(); })
-          Button(this.mode === 'move' ? '确认移动' : (this.mode === 'edit' ? '保存' : '添加'), { type: ButtonType.Normal }).id('task-submit')
-            .layoutWeight(1).height(46).fontSize(15).fontWeight(FontWeight.Medium).borderRadius(12)
-            .fontColor(this.palette.accent).backgroundColor(Materials.inset(this.palette, true))
-            .enabled(this.canAttemptSubmit())
-            .opacity(this.canAttemptSubmit() ? 1 : 0.45).onClick(() => this.submit())
-        }.width('100%')
-        if (this.mode === 'edit') {
-          // 删除确认与持久化由宿主处理，当前编辑草稿在确认前保持不变。
-          Button({ type: ButtonType.Normal }) {
-            Row({ space: 8 }) {
-              PlanerIcon({ icon: 'trash', color: this.palette.danger, iconSize: 20 })
-              Text('删除日程').fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.danger)
-            }.justifyContent(FlexAlign.Center)
-          }.id('task-delete').width('100%').height(44).borderRadius(12)
-            .backgroundColor(Materials.inset(this.palette, false, true)).accessibilityText('删除日程')
-            .onClick(() => { this.deleteMode = ''; this.cancelDueDateScroll(); this.onDelete(); })
-        }
-      }.width('100%').padding({ left: 20, right: 20, top: 12, bottom: 16 })
+      Row({ space: 12 }) {
+        MaterialButtonScope({ palette: this.palette, controlHeight: 46, content: () => { this.taskCancelButton(); } }).layoutWeight(1).height(46)
+        MaterialButtonScope({ palette: this.palette, controlHeight: 46, content: () => { this.taskSubmitButton(); } }).layoutWeight(1).height(46)
+      }.width('100%').constraintSize({ maxWidth: 520 }).padding({ left: 20, right: 20, top: 14, bottom: 18 })
     }.id('task-editor-root').width('100%').height('100%').padding({ bottom: this.keyboardInset })
-      .onAreaChange((_oldArea: Area, area: Area) => this.updateEditorArea(area))
+      .onAreaChange((_oldArea: Area, area: Area) => {
+        this.updateEditorArea(area);
+        EditorMaterialRefresh.request(this.getUIContext());
+      })
       .backgroundColor(Color.Transparent).borderRadius(24)
   }
 }

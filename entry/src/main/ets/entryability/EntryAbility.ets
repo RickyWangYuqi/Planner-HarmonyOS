@@ -1,6 +1,7 @@
 import { AbilityConstant, ConfigurationConstant, systemConfiguration, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { display, window } from '@kit.ArkUI';
+import { FormSync } from '../services/FormSync';
 
 const DOMAIN = 0x0000;
 const TAG = '序笺';
@@ -21,6 +22,7 @@ export default class EntryAbility extends UIAbility {
   };
 
   onCreate(_want: Want, _launchParam: AbilityConstant.LaunchParam): void {
+    FormSync.rememberLaunch(_want);
     // 应用尚未覆盖颜色模式时初始化；之后只从真实系统环境回调更新。
     this.updateSystemColorMode(this.context.config.colorMode);
     try {
@@ -30,6 +32,10 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, TAG, '订阅系统颜色模式失败：%{public}s', String(error));
     }
     AppStorage.setOrCreate('planerForeground', Date.now());
+  }
+
+  onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
+    FormSync.rememberLaunch(want);
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
@@ -79,6 +85,11 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // 页面收到前台事件后按本地日期检查跨日，无需后台常驻或通知权限。
     AppStorage.setOrCreate('planerForeground', Date.now());
+  }
+
+  onBackground(): void {
+    // 离开应用时补推最终状态；换色主要在保存成功后完成，不能依赖后台回调赶上返回动画。
+    AppStorage.setOrCreate('planerBackground', Date.now());
   }
 
   onDestroy(): void {

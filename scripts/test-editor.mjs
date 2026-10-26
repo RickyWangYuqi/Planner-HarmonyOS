@@ -67,13 +67,18 @@ function viewCallback(marker, signature) {
   }
   throw new Error(`视图回调未闭合：${marker}`);
 }
-const longPressGroup = viewCallback('private groupChip(', '.onAction(() => {');
+const dateBuilder = editorSource.slice(editorSource.indexOf('  private dateFieldButton('), editorSource.indexOf('  private dateSectionBody('));
+const dateTextExpression = dateBuilder.match(/\bText\((.*?)\)\.fontSize\(14\)/)?.[1];
+const dateAccessExpression = dateBuilder.match(/\.accessibilityText\((.*?)\)\s*\n/)?.[1];
+if (!dateTextExpression || !dateAccessExpression) throw new Error('缺少日期按钮的真实文案表达式');
+const longPressGroup = viewCallback('private groupLabelButton(', '.onAction(() => {');
 const cancelEditor = viewCallback(".id('task-cancel')", '.onClick(() => {');
 const closeEditor = viewCallback("label: '取消编辑'", 'onTap: () => {');
 const deleteTask = viewCallback(".id('task-delete')", '.onClick(() => {');
 // 取消创建动作位于 Builder 内，单独提取真实按钮回调，避免测试自行重写取消规则。
-const cancelCreate = editorSource.match(/\.onClick\(\(\) => (this\.animateGroup\(\(\) => \{\s*this\.creatingGroup = false;\s*\}\))\)/);
-if (!cancelCreate) throw new Error('取消创建分组回调结构已变化，请更新提取器。');
+const cancelCreate = viewCallback('private groupCancelButton(', '.onClick(() => {');
+const createGroupFromView = viewCallback('private groupCreateButton(', '.onClick(() => {');
+const submitFromView = viewCallback(".id('task-submit')", '.onClick(() => {');
 editorClass += `
   getUIContext() {
     return {
@@ -91,7 +96,11 @@ editorClass += `
       getFrameNodeById: id => this.testNodes?.get(id) || null
     };
   }
-  cancelCreateFromView() { ${cancelCreate[1]}; }
+  dateLabelFromView(field) { return ${dateTextExpression}; }
+  dateAccessibilityFromView(field, title) { return ${dateAccessExpression}; }
+  cancelCreateFromView() { ${cancelCreate} }
+  createGroupFromView() { ${createGroupFromView} }
+  submitFromView() { ${submitFromView} }
   longPressGroupFromView(group) { ${longPressGroup} }
   cancelEditorFromView() { ${cancelEditor} }
   closeEditorFromView() { ${closeEditor} }
@@ -122,10 +131,17 @@ const timers = {
     this.now = target;
   }
 };
+// 加载真实反馈状态机，覆盖丢失 Up 后打开面板以及点击中关闭表单的生命周期。
+const appearanceSource = readFileSync(path.join(project, 'entry/src/main/ets/theme/Appearance.ets'), 'utf8');
+const feedbackStart = appearanceSource.indexOf('export class ButtonFeedback');
+const feedbackEnd = appearanceSource.indexOf('const controlMaterials:', feedbackStart);
+if (feedbackStart < 0 || feedbackEnd < 0) throw new Error('缺少真实 ButtonFeedback');
+const feedbackSource = appearanceSource.slice(feedbackStart, feedbackEnd).replace('export class', 'class');
+const TouchType = { Down: 0, Up: 1, Move: 2, Cancel: 3 };
 let animationCalls = 0;
 let fullUiSupported = true;
 const editorContext = vm.createContext({
-  AppAction, AppData, Task, addDays,
+  AppAction, AppData, Task, addDays, TouchType,
   canIUse: capability => capability === 'SystemCapability.ArkUI.ArkUI.Full' && fullUiSupported,
   Palette: class {},
   Scroller: class {
@@ -151,7 +167,7 @@ const editorContext = vm.createContext({
   clearTimeout: id => timers.stop(id),
   recordAnimation: () => { animationCalls++; }
 });
-vm.runInContext(transpile(editorClass, editorPath), editorContext, { filename: editorPath });
+vm.runInContext(transpile(feedbackSource + editorClass, editorPath), editorContext, { filename: editorPath });
 const Editor = editorContext.Editor;
 let passed = 0;
 function assert(condition, message) {
@@ -766,6 +782,96 @@ console.log('26) 控制器能力缺失时保持合法可选参数和失焦回退
     '能力缺失时不创建或调用控制器，仍清焦点并显示日期校验提示');
   editor.aboutToDisappear();
   fullUiSupported = true;
+}
+
+console.log('27) 共用日历切换、清除与必填错误定位');
+{
+  const { editor, actions } = createEditor(initialData(), { section: 'future', testNodes: dateNodes() });
+  assert(editor.dateField === 'due' && editor.calendarValue() === '' && editor.calendarMinimum() === '2026-10-16',
+    '未来表单默认选择必填截止日期，沿用次日起的可选范围');
+  editor.startDate = '2026-10-18'; editor.dueDate = '2026-10-20';
+  editor.selectDateField('start');
+  assert(editor.dateField === 'start' && editor.calendarValue() === '2026-10-18' &&
+    editor.calendarMinimum() === '2026-10-16' && editor.dueDate === '2026-10-20',
+    '切换起始选择项只更新日历焦点，不改已有区间');
+  editor.selectCalendarDate('2026-10-21');
+  assert(editor.startDate === '2026-10-21' && editor.dueDate === '2026-10-21',
+    '共用日历选择起始日期继续执行原有区间联动规则');
+  editor.clearStartDate();
+  assert(editor.startDate === '' && editor.dueDate === '2026-10-21' && editor.calendarMinimum() === '2026-10-16',
+    '清除可选起始日期保留截止日期并恢复默认范围');
+  editor.selectDateField('due'); editor.selectCalendarDate('2026-10-22');
+  assert(editor.dueDate === '2026-10-22' && editor.startDate === '' && editor.calendarValue() === '2026-10-22',
+    '切换截止选择项后提交真实截止日期，起始仍可不填');
+  editor.selectDateField('start'); editor.dueDate = ''; editor.content = '校验共用日历'; editor.submit();
+  assert(editor.dateField === 'due' && editor.dueDateError && editor.dueDateScrollPending && actions.length === 0,
+    '未填截止日期时自动切回截止日历并沿用提示和滚动定位，不提交数据');
+  editor.aboutToDisappear();
+}
+
+console.log('28) 日期按钮始终读取当前日期，避免 Builder 捕获初始占位文案');
+{
+  const { editor, actions } = createEditor(initialData(), { section: 'future' });
+  const renderStart = () => editor.dateLabelFromView('start');
+  const renderDue = () => editor.dateLabelFromView('due');
+  assert(renderStart() === '默认次日' && renderDue() === '请选择日期', '未选择日期时保留原有占位文案');
+  editor.selectCalendarDate('2026-10-20');
+  assert(renderDue() === '2026-10-20' && renderStart() === '默认次日' &&
+    editor.dateAccessibilityFromView('due', '截止日期').endsWith('2026-10-20'), '选中截止后显示真实日期，无障碍文案同步');
+  editor.selectDateField('start'); editor.selectCalendarDate('2026-10-18');
+  assert(renderStart() === '2026-10-18' && renderDue() === '2026-10-20', '同一个按钮绑定可从占位更新为起始日期');
+  editor.selectCalendarDate('2026-10-22');
+  assert(renderStart() === '2026-10-22' && renderDue() === '2026-10-22', '起始晚于原截止时，区间联动后的两个按钮均刷新');
+  editor.clearStartDate();
+  assert(renderStart() === '默认次日' && renderDue() === '2026-10-22' &&
+    editor.dateAccessibilityFromView('start', '起始日期').endsWith('默认次日'), '清除起始后仅该按钮恢复占位，不清空截止');
+  editor.selectDateField('due'); editor.selectCalendarDate('2026-10-25');
+  assert(renderDue() === '2026-10-25' && actions.length === 0, '反复改选只更新草稿和文案，不提前保存日程');
+  editor.aboutToDisappear();
+}
+{
+  const data = initialData();
+  const task = new Task(); task.text = '已有未来安排'; task.startDate = '2026-10-18'; task.dueDate = '2026-10-21';
+  const { editor } = createEditor(data, { section: 'future', mode: 'edit', task });
+  assert(editor.dateLabelFromView('start') === task.startDate && editor.dateLabelFromView('due') === task.dueDate,
+    '打开已有未来日程时直接显示原区间');
+  editor.selectDateField('due'); editor.selectCalendarDate('2026-10-23');
+  assert(editor.dateLabelFromView('due') === '2026-10-23' && editor.dateLabelFromView('start') === task.startDate,
+    '编辑时改选截止不残留初始参数，也不改变起始');
+  editor.aboutToDisappear();
+}
+
+console.log('29) 按压反馈在释放、取消和界面切换时清理');
+{
+  const { editor, actions } = createEditor();
+  editor.buttonTouch('group-create', { type: TouchType.Down });
+  assert(editor.buttonScale('group-create') === 0.97 && editor.buttonScale('task-submit') === 1,
+    '按下只缩放当前按钮，保留明确且局部的触摸反馈');
+  editor.buttonTouch('group-create', { type: TouchType.Move });
+  assert(editor.pressedButton === 'group-create', '移动事件不会打断当前按压反馈');
+  editor.buttonTouch('other', { type: TouchType.Up });
+  assert(editor.pressedButton === 'group-create', '其他按钮释放不会清除新的按压状态');
+  editor.buttonTouch('group-create', { type: TouchType.Cancel });
+  assert(editor.pressedButton === '' && editor.buttonScale('group-create') === 1,
+    '滑动接管或触摸取消时立即清理按压反馈');
+  editor.buttonTouch('group-create', { type: TouchType.Down });
+  editor.buttonTouch('group-create', { type: TouchType.Up });
+  assert(editor.pressedButton === '', '正常触摸释放恢复按钮尺寸');
+  editor.buttonTouch('group-create', { type: TouchType.Down });
+  editor.createGroupFromView();
+  assert(editor.creatingGroup && editor.pressedButton === '', '没有 Up 的真实创建按钮点击仍在展开表单前清理按压状态');
+  editor.buttonTouch('group-cancel', { type: TouchType.Down });
+  editor.cancelCreateFromView();
+  assert(!editor.creatingGroup && editor.pressedButton === '', '真实局部取消按钮在收起内容前清理按压状态');
+  editor.content = '按压后提交';
+  let stateAtClose = 'unset';
+  editor.onClose = () => { stateAtClose = editor.pressedButton; };
+  editor.buttonTouch('task-submit', { type: TouchType.Down });
+  editor.submitFromView();
+  assert(stateAtClose === '' && actions.length === 1, '真实提交按钮先复位再保存与关闭，不依赖离场后的 Up');
+  editor.buttonTouch('task-cancel', { type: TouchType.Down });
+  editor.aboutToDisappear();
+  assert(editor.pressedButton === '', '表单直接离场也清空未释放的触摸反馈');
 }
 
 console.log(`TaskEditor regression: ${passed} assertions passed.`);

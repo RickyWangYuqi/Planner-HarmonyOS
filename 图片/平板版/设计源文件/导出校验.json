@@ -1,0 +1,117 @@
+{
+  "posters": 6,
+  "posterSize": [
+    2880,
+    1920
+  ],
+  "overviewSize": [
+    2880,
+    1920
+  ],
+  "zipMembers": 8,
+  "zipCRC": "PASS",
+  "phoneAssetsUnchanged": 33,
+  "restorationVerified": {
+    "contentAndSettingsMatch": true,
+    "sampleDataRemoved": true,
+    "dateAdvancedNaturally": "2026-10-23"
+  },
+  "localRegressionAssertions": 659,
+  "tabletAssertions": 26,
+  "aspectRatio": "3:2",
+  "maxImageBytesExclusive": 5000000,
+  "storeSizeValidation": "PASS",
+  "files": [
+    {
+      "name": "00-总览.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1099726,
+      "MB": 1.1,
+      "sha256": "bff77af8a3f07a6d9b11850a0330616b5cb53bf5aba54a4d19229cfe1cfaf020",
+      "result": "PASS"
+    },
+    {
+      "name": "01-双栏日程.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1223144,
+      "MB": 1.22,
+      "sha256": "0c0ebc298b672c21ed80159f452b64b56852fd793caca3f068320cb1b1d55798",
+      "result": "PASS"
+    },
+    {
+      "name": "02-分组与进度.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 958052,
+      "MB": 0.96,
+      "sha256": "961fc8b5fe90746fc460f05dc5621a214162416c5e1ee06c17ad40384890c90a",
+      "result": "PASS"
+    },
+    {
+      "name": "03-未来安排.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1007546,
+      "MB": 1.01,
+      "sha256": "953ff5c3089c6540a08ec2663aecaf34a3c6a84e215d56fb170f18921c19be13",
+      "result": "PASS"
+    },
+    {
+      "name": "04-个性设置.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1454531,
+      "MB": 1.45,
+      "sha256": "a7ec34145831cd95ab579e86e7b1c5eb8008a26d4f674188d0e9fe2c6f714211",
+      "result": "PASS"
+    },
+    {
+      "name": "05-历史回顾.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1244248,
+      "MB": 1.24,
+      "sha256": "c10413d7c0d5e677dc0eece0a43a34bab0fb70c41ed7d8517636b9db988cebf9",
+      "result": "PASS"
+    },
+    {
+      "name": "06-深色主题.png",
+      "size": [
+        2880,
+        1920
+      ],
+      "ratio": "3:2",
+      "format": "PNG",
+      "bytes": 1634670,
+      "MB": 1.63,
+      "sha256": "496ef78082106655fb72a975ba807b8f1b57ddab2ad57cbca63271ea985f57a4",
+      "result": "PASS"
+    }
+  ]
+}

@@ -23,6 +23,22 @@
     {
       "name": "brand_name",
       "value": "序笺"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "日程卡片"
+    },
+    {
+      "name": "widget_desc",
+      "value": "在桌面查看当日日程、完成进度与前几条待办"
+    },
+    {
+      "name": "EntryFormAbility_label",
+      "value": "日程卡片"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "提供当日日程的桌面卡片"
     }
   ]
 }

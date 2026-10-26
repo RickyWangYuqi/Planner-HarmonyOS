@@ -66,6 +66,8 @@ export struct GroupDragVisual {
   @Prop showNumber: boolean = false;
   @Prop showDefaultProgress: boolean = false;
   @Prop showDates: boolean = false;
+  @Prop viewedDate: string = '';
+  @Prop realDate: string = '';
 
   private currentMember(id: string): GroupDragMember {
     const member = this.members.find((item: GroupDragMember): boolean => item.task.id === id);
@@ -90,7 +92,7 @@ export struct GroupDragVisual {
     Stack({ alignContent: Alignment.TopStart }) {
       TaskCardView({ task: this.currentMember(id).task, order: this.currentMember(id).order,
         showNumber: this.showNumber, showDefaultProgress: this.showDefaultProgress,
-        showDates: this.showDates, palette: this.palette, preview: true })
+        showDates: this.showDates, viewedDate: this.viewedDate, realDate: this.realDate, palette: this.palette, preview: true })
         .width(this.currentMember(id).width).height(this.currentMember(id).height)
         .translate({ y: -this.currentMember(id).clipTop })
     }.width(this.currentMember(id).width).height(this.currentMember(id).visibleHeight).clip(true)

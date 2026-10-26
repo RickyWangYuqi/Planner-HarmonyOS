@@ -1,7 +1,7 @@
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { Palette } from '../theme/Theme';
-import { Materials } from '../theme/Appearance';
+import { Materials, Motion, ButtonFeedback } from '../theme/Appearance';
 
 class BackButtonModifier implements AttributeModifier<ButtonAttribute> {
   private palette: Palette;
@@ -27,7 +27,16 @@ class BackButtonModifier implements AttributeModifier<ButtonAttribute> {
 @Component
 export struct HistoryBackButton {
   @Prop palette: Palette = new Palette();
+  @Prop label: string = '返回设置';
+  @Prop buttonId: string = 'history-back';
+  @State private pressedButton: string = '';
   onBack: () => void = (): void => {};
+
+  private buttonTouch(event: TouchEvent): void {
+    const next = ButtonFeedback.next(this.pressedButton, this.buttonId, event.type);
+    if (next === this.pressedButton) return;
+    this.getUIContext().animateTo(Motion.quick(), (): void => { this.pressedButton = next; });
+  }
 
   private titleOptions(): NavigationTitleOptions {
     const options: NavigationTitleOptions = {
@@ -40,12 +49,17 @@ export struct HistoryBackButton {
 
   @Builder
   private backContent() {
-    Button({ type: ButtonType.Normal }) {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
       Image($r('app.media.chevron_left')).width(22).height(44).objectFit(ImageFit.Contain)
         .fillColor(this.palette.text).draggable(false).accessibilityLevel('no')
     }.width(44).height(44).padding(0).borderRadius(12)
       .attributeModifier(new BackButtonModifier(this.palette))
-      .id('icon-back-返回设置').accessibilityText('返回设置').onClick(() => this.onBack())
+      .scale({ x: ButtonFeedback.scale(this.pressedButton, this.buttonId),
+        y: ButtonFeedback.scale(this.pressedButton, this.buttonId) })
+      .onTouch((event: TouchEvent): void => this.buttonTouch(event))
+      .id(this.buttonId).accessibilityText(this.label)
+      .onDisAppear((): void => { this.pressedButton = ''; })
+      .onClick((): void => { this.pressedButton = ''; this.onBack(); })
   }
 
   build() {

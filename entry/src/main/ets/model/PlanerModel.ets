@@ -1,8 +1,11 @@
+import { CheckInItem, CheckInRecord } from './CheckInModel';
 // 与桌面版一致的数据结构；保留桌面窗口字段，以便数据版本兼容。
 export class Task {
   id: string = '';
   text: string = '';
   createdAt: string = '';
+  scheduledDate: string | null = null;
+  completedDate: string | null = null;
   group: string | null = null;
   startDate: string | null = null;
   dueDate: string | null = null;
@@ -11,6 +14,8 @@ export class Task {
   progress: number | null = null;
   plannedDate: string | null = null;
   archivedAt: string | null = null;
+  checkInId: string = '';
+  checkInKey: string = '';
 
   clone(): Task {
     return Task.copy(this);
@@ -24,12 +29,16 @@ export class Task {
     task.group = typeof source.group === 'string' && source.group.trim() ? source.group.trim() : null;
     task.startDate = source.startDate || null;
     task.dueDate = source.dueDate || null;
+    task.scheduledDate = typeof source.scheduledDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(source.scheduledDate) ? source.scheduledDate : null;
+    task.completedDate = typeof source.completedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(source.completedDate) ? source.completedDate : null;
     task.completed = source.completed === true;
     task.completedAt = source.completedAt || null;
     task.progress = typeof source.progress === 'number' && Number.isFinite(source.progress)
       ? Math.max(0, Math.min(100, Math.round(source.progress))) : null;
     task.plannedDate = source.plannedDate || null;
     task.archivedAt = source.archivedAt || null;
+    task.checkInId = typeof source.checkInId === 'string' ? source.checkInId : '';
+    task.checkInKey = typeof source.checkInKey === 'string' ? source.checkInKey : '';
     return task;
   }
 }
@@ -59,6 +68,7 @@ export class Settings {
   autoScrollNextOnComplete: boolean = false;
   todayPaneRatio: number = 0.45;
   showGroups: boolean = false;
+  retainCompletedFutureUntilDue: boolean = false;
 
   clone(): Settings {
     return Settings.copy(this);
@@ -78,6 +88,7 @@ export class Settings {
     settings.progressDefaultZero = source.progressDefaultZero === true;
     settings.autoScrollNextOnComplete = source.autoScrollNextOnComplete === true;
     settings.showGroups = source.showGroups === true;
+    settings.retainCompletedFutureUntilDue = source.retainCompletedFutureUntilDue === true;
     settings.todayPaneRatio = typeof source.todayPaneRatio === 'number' && Number.isFinite(source.todayPaneRatio)
       ? Math.max(0.03, Math.min(0.97, source.todayPaneRatio)) : 0.45;
     return settings;
@@ -87,10 +98,14 @@ export class Settings {
 export class AppData {
   version: number = 1;
   currentDate: string = '';
+  // 与浏览日期分离，只有真实日期推进才更新该字段。
+  lastRolloverDate: string = '';
   todayTasks: Task[] = [];
   futureTasks: Task[] = [];
   groups: string[] = [];
   history: HistoryEntry[] = [];
+  checkIns: CheckInItem[] = [];
+  checkInRecords: CheckInRecord[] = [];
   settings: Settings = new Settings();
   todayAnchorId: string | null = null;
 
@@ -98,6 +113,7 @@ export class AppData {
     const data = new AppData();
     data.version = this.version;
     data.currentDate = this.currentDate;
+    data.lastRolloverDate = this.lastRolloverDate;
     data.todayTasks = this.todayTasks.map((task: Task): Task => Task.copy(task));
     data.futureTasks = this.futureTasks.map((task: Task): Task => Task.copy(task));
     data.groups = this.groups.slice();
@@ -107,6 +123,8 @@ export class AppData {
       copy.tasks = entry.tasks.map((task: Task): Task => Task.copy(task));
       return copy;
     });
+    data.checkIns = (this.checkIns || []).map((item: CheckInItem): CheckInItem => CheckInItem.copy(item));
+    data.checkInRecords = (this.checkInRecords || []).map((record: CheckInRecord): CheckInRecord => CheckInRecord.copy(record));
     data.settings = Settings.copy(this.settings);
     data.todayAnchorId = this.todayAnchorId;
     return data;
@@ -131,6 +149,10 @@ export class AppAction {
   target: string = 'today';
   settings?: Settings;
   data?: AppData;
+  checkIn?: CheckInItem;
+  rangeStart?: number;
+  rangeEnd?: number;
+  notes?: string;
 
   constructor(type: string) {
     this.type = type;

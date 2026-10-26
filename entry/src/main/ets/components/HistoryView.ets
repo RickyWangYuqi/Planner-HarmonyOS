@@ -1,3 +1,4 @@
+import { ResponsiveLayout } from '../theme/ResponsiveLayout';
 import { HdsNavigation, HdsNavigationTitleMode, HdsNavigationTitleBarStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { Task, AppData, HistoryEntry } from '../model/PlanerModel';
 import { formatFull } from '../model/PlanerEngine';
@@ -10,6 +11,7 @@ import { Motion, Materials } from '../theme/Appearance';
 @Component
 export struct HistoryView {
   @StorageProp('planerSafeTop') safeTop: number = 0;
+  @Prop windowWidth: number = 0;
   @Prop data: AppData = new AppData();
   @Prop palette: Palette = new Palette();
   @State private viewportHeight: number = 500;
@@ -92,8 +94,9 @@ export struct HistoryView {
               }.width('100%')
             }, (entry: HistoryEntry) => entry.date)
           }
-        }.width('100%').padding({ left: 16, right: 16, top: this.safeTop + 72, bottom: 40 })
-      }.id('history-scroll').width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto).clip(false)
+        }.width('100%').constraintSize({ maxWidth: 960 })
+          .padding({ left: ResponsiveLayout.gutter(this.windowWidth), right: ResponsiveLayout.gutter(this.windowWidth), top: this.safeTop + 72, bottom: 40 })
+      }.id('history-scroll').width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto).clip(false)
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .onAreaChange((_old: Area, area: Area) => { this.viewportHeight = Number(area.height); })
     }.width('100%').height('100%').backgroundColor(this.palette.bg)

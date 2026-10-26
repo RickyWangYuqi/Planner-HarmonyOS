@@ -1,22 +1,26 @@
 // 一页使用说明集中配置；新增或调整功能时只需更新这里的简要文案。
-export const TUTORIAL_VERSION: number = 3;
+export const TUTORIAL_VERSION: number = 4;
 export class TutorialFeature {
   id: string;
   icon: string;
   title: string;
   description: string;
-  constructor(id: string, icon: string, title: string, description: string) {
-    this.id = id; this.icon = icon; this.title = title; this.description = description;
+  wideDescription: string;
+  constructor(id: string, icon: string, title: string, description: string, wideDescription: string = '') {
+    this.id = id; this.icon = icon; this.title = title; this.description = description; this.wideDescription = wideDescription;
   }
 }
 export const TUTORIAL_TITLE: string = '让计划，轻一点';
 export const TUTORIAL_SUBTITLE: string = '几件小事，开始用好序笺';
-export const TUTORIAL_FOOTNOTE: string = '本机自动保存 · 随时在「设置 → 新手教程」回看';
+export const TUTORIAL_FOOTNOTE: string = '随时在「设置 → 新手教程」回看';
 const FEATURES: TutorialFeature[] = [
   new TutorialFeature('plan', 'calendar', '今天与未来，分开安排', '点分区右侧 ＋ 添加日程；未来计划需选择截止日期，到期自动进入当日。'),
   new TutorialFeature('edit', 'edit', '记录进度，轻勾完成', '右侧编辑，左侧勾选完成；编辑页也可设置进度或删除日程。'),
-  new TutorialFeature('drag', 'move', '长按拖动，随手整理', '长按卡片可排序、跨区移动；拖动中间分割条，调整两区大小。'),
-  new TutorialFeature('group', 'check', '按分组，让列表更清楚', '在设置中开启分组，再到新增或编辑页选择分组；长按组标题可整组排序。'),
+  new TutorialFeature('checkin', 'check', '按节奏打卡，留下坚持', '在底部打卡页新增计划，选择频率；当天任务同步到日程，详情中可查看记录、补卡或调整计划。'),
+  new TutorialFeature('checkin-increment', 'continue', '内容接续，不必每天重写', '名称写“背单词1-10”或“看网课第10节”，点提示开启递增；以后自动接续，历史保持原样。'),
+  new TutorialFeature('drag', 'move', '长按拖动，随手整理', '长按卡片可排序、跨区移动；拖动中间分割条，调整两区大小。', '长按卡片可排序、跨区移动；宽屏左右并列，窄窗口上下排列。'),
+  new TutorialFeature('group', 'group', '按分组，让列表更清楚', '在设置中开启分组，再到新增或编辑页选择分组；长按组标题可整组排序。'),
+  new TutorialFeature('widget', 'widget', '桌面卡片，抬眼可见', '长按桌面应用图标添加卡片；三种尺寸可滚动查看，大卡还可直接完成未来日程，保留与归档遵循设置。'),
   new TutorialFeature('settings', 'settings', '历史和外观，都在设置', '已完成日程归入历史，可查看或恢复；主题与配色也能按喜好调整。')
 ];
 export function tutorialFeatures(): TutorialFeature[] { return FEATURES.slice(); }

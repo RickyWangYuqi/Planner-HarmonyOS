@@ -1,9 +1,11 @@
+import { ResponsiveLayout } from '../theme/ResponsiveLayout';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
-import { window, KeyboardAvoidMode, FrameCallback } from '@kit.ArkUI';
+import { window, KeyboardAvoidMode, FrameCallback, SymbolGlyphModifier } from '@kit.ArkUI';
 import { AppData, AppAction, Task } from '../model/PlanerModel';
-import { freshData, reduce, todayKey, addDays, formatFull, formatRange } from '../model/PlanerEngine';
+import { freshData, reduce, todayKey, addDays, formatFull, formatRange, normalizeData, realDateOf } from '../model/PlanerEngine';
 import { PlanerStorage } from '../services/PlanerStorage';
+import { FormSync } from '../services/FormSync';
 import { TutorialStorage } from '../services/TutorialStorage';
 import { TutorialView } from '../components/TutorialView';
 import { TutorialProgress, shouldAutoTutorial, closeTutorial } from '../tutorial/TutorialConfig';
@@ -13,16 +15,28 @@ import { PlanerCalendar } from '../components/CalendarPicker';
 import { TaskEditor } from '../components/TaskEditor';
 import { SettingsView } from '../components/SettingsView';
 import { HistoryView } from '../components/HistoryView';
+import { CheckInView } from '../components/CheckInView';
+import { validateCheckInAction } from '../model/CheckInEngine';
 import { PlanerIcon } from '../components/PlanerIcon';
 import { GroupDragVisual, GroupDragMember } from '../components/GroupDragVisual';
 import { TaskCardView } from '../components/TaskCardView';
-import { Motion, Materials, PlanerTabsModifier } from '../theme/Appearance';
+import { Motion, Materials, PlanerTabsModifier, PlanerControlModifier, ButtonFeedback } from '../theme/Appearance';
+import { MaterialButtonScope } from '../components/MaterialButtonScope';
+import { SheetMaterialSurface } from '../components/SheetMaterialSurface';
+import { MaterialSection, EditorMaterialRefresh } from '../components/MaterialSection';
 
 // 每次只保留一个系统帧回调；停止后的旧回调由代次校验失效。
 class DragScrollFrame extends FrameCallback {
   private callback: (time: number) => void;
   constructor(callback: (time: number) => void) { super(); this.callback = callback; }
   onFrame(frameTimeInNano: number): void { this.callback(frameTimeInNano); }
+}
+
+// 教程首帧提交后启动条目动画，与原生面板的上升动画并行。
+class TutorialEntranceFrame extends FrameCallback {
+  private action: () => void;
+  constructor(action: () => void) { super(); this.action = action; }
+  onFrame(_time: number): void { this.action(); }
 }
 
 class DragBounds {
@@ -55,6 +69,7 @@ struct Index {
   @State saveError: string = '';
   @State saving: boolean = false;
   @State private tutorialShown: boolean = false;
+  @State private tutorialEntered: boolean = false;
   @State private tutorialProgress: TutorialProgress = new TutorialProgress();
   @State private tutorialError: string = '';
   private tutorialStore: TutorialStorage = new TutorialStorage();
@@ -62,7 +77,12 @@ struct Index {
   private tutorialStoreReady: boolean = false;
   private tutorialDisposed: boolean = false;
   private tutorialRevision: number = 0;
+  private tutorialEntranceRevision: number = 0;
   @State page: number = 0;
+  @State checkInRequestedId: string = '';
+  @State checkInRequestRevision: number = 0;
+  private checkInSheetShown: boolean = false;
+  private foregroundSyncPending: boolean = false;
   @State private historyCreated: boolean = false;
   @State modal: string = '';
   @State sheetShown: boolean = false;
@@ -75,6 +95,8 @@ struct Index {
   @State selectedGroup: string | null | undefined = undefined;
   @State restoreTarget: string = 'today';
   @State restoreDate: string = '';
+  @State private modalPressedButton: string = '';
+  private modalScroller: Scroller = new Scroller();
   @State splitRatio: number = 0.45;
   @State dragId: string = '';
   @State dragSection: string = '';
@@ -83,8 +105,9 @@ struct Index {
   @State dropSection: string = '';
   @State dropIndex: number = -1;
   @State dragHeight: number = 58;
-  @StorageProp('systemDark') @Watch('updatePalette') systemDark: boolean = false;
+  @StorageProp('systemDark') @Watch('darkModeChanged') systemDark: boolean = false;
   @StorageProp('planerForeground') @Watch('foregroundChanged') foregroundTick: number = 0;
+  @StorageProp('planerBackground') @Watch('backgroundChanged') backgroundTick: number = 0;
   private tabsController: TabsController = new TabsController();
   private paletteKey: string = '';
   private appliedColorMode: string = '';
@@ -96,7 +119,13 @@ struct Index {
   private historyScroller: Scroller = new Scroller();
   private timer: number = -1;
   private saveRevision: number = 0;
+  private anchorRevision: number = 0;
+  private anchorPending: boolean = false;
+  // 最近一次与磁盘一致的数据快照，用于识别卡片进程写入的变更。
+  private adoptedRaw: string = '';
   @State private paneHeight: number = 0;
+  @State private viewportWidth: number = 0;
+  @State private wideLayout: boolean = false;
   private splitStart: number = 0.45;
   private todayTop: number = 0;
   private todayHeight: number = 200;
@@ -156,6 +185,8 @@ struct Index {
 
   aboutToDisappear(): void {
     this.tutorialDisposed = true;
+    this.anchorRevision++;
+    this.anchorPending = false;
     this.stopMoreObservation();
     if (this.timer >= 0) clearInterval(this.timer);
     this.resetDrag();
@@ -182,8 +213,10 @@ struct Index {
       this.resetDrag();
       return true;
     }
-    if (this.page === 2) {
-      this.navigate(this.page - 1);
+    // 打卡弹层交给系统返回手势关闭，并由回调同步状态。
+    if (this.checkInSheetShown) return false;
+    if (this.page === 3) {
+      this.navigate(2);
       return true;
     }
     return false;
@@ -195,13 +228,17 @@ struct Index {
     this.loadError = '';
     try {
       this.data = await this.storage.load(this.context);
+      this.adoptedRaw = JSON.stringify(this.data);
       this.splitRatio = this.data.settings.todayPaneRatio;
       this.updatePalette();
       this.ready = true;
       this.updatePalette();
       this.checkDate();
+      this.dispatch(new AppAction('CHECKIN_SYNC'));
       this.restoreAnchor();
       this.initializeTutorial();
+      // 启动时先与桌面卡片对齐一次：卡片可能停在上次退出前的状态。
+      this.syncForm();
     } catch (error) {
       this.loadError = '无法读取本地日程。请重试；原数据文件已保留。';
     }
@@ -225,13 +262,44 @@ struct Index {
   private openTutorial(): void {
     if (this.tutorialLoading || this.tutorialShown) return;
     this.resetDrag();
-    this.getUIContext().animateTo(Motion.spring(), (): void => { this.tutorialShown = true; });
+    this.tutorialEntranceRevision++;
+    this.tutorialEntered = false;
+    this.tutorialShown = true;
   }
 
   private dismissTutorial(): void {
+    this.tutorialEntranceRevision++;
+    this.tutorialShown = false;
+    this.completeTutorial();
+  }
+
+  private completeTutorial(): void {
+    // 按钮、返回、遮罩与下滑关闭共用标记；不因 onDisappear 再次落盘。
+    if (this.tutorialProgress.status === 'completed') return;
     this.tutorialProgress = closeTutorial(this.tutorialProgress);
-    this.getUIContext().animateTo(Motion.quick(), (): void => { this.tutorialShown = false; });
     this.saveTutorial();
+  }
+
+  private tutorialContentReady(): void {
+    const revision = this.tutorialEntranceRevision;
+    this.getUIContext().postFrameCallback(new TutorialEntranceFrame((): void => {
+      if (!this.tutorialDisposed && this.tutorialShown && revision === this.tutorialEntranceRevision) {
+        this.tutorialEntered = true;
+      }
+    }));
+  }
+
+  @Builder
+  private tutorialContent() {
+    TutorialView({ wideLayout: this.wideLayout, palette: this.palette, safeBottom: this.safeBottom, entered: this.tutorialEntered,
+      saveError: this.tutorialError, onClose: (): void => this.dismissTutorial(),
+      onRetry: (): void => { this.saveTutorial(true); } })
+      .onAppear((): void => this.tutorialContentReady())
+  }
+
+  @Builder
+  private tutorialSurfaceContent() {
+    SheetMaterialSurface({ palette: this.palette, radius: 26, content: () => { this.tutorialContent(); } })
   }
 
   private async saveTutorial(retry: boolean = false): Promise<void> {
@@ -291,13 +359,49 @@ struct Index {
     }
   }
 
-  private foregroundChanged(): void {
+  // 退到后台时补推一次卡片：被 router 进入的那张卡片回到桌面时才重绘，届时数据已是最新。
+  private backgroundChanged(): void {
+    this.syncForm();
+  }
+
+  private async foregroundChanged(): Promise<void> {
     this.resetDrag();
+    // 必须先把卡片进程写进磁盘的改动采纳进来：卡片上完成的未来日程只落在文件里，
+    // 若先 checkDate / syncForm，会用内存中的旧状态把文件覆盖回去，卡片随即“复活”已完成项。
+    if (this.saving) { this.foregroundSyncPending = true; return; }
+    if (!await this.adoptExternalChange()) return;
     this.checkDate();
+    if (this.ready) this.dispatch(new AppAction('CHECKIN_SYNC'));
+    this.syncForm();
+  }
+
+  // 系统深色开关变化：应用内立即换色，跟随系统时同步把新配色推给桌面卡片。
+  private darkModeChanged(): void {
+    this.updatePalette();
+    if (this.data.settings.themeMode === 'system') this.syncForm();
+  }
+
+  private async adoptExternalChange(): Promise<boolean> {
+    if (!this.context || !this.ready) return false;
+    if (this.saving || this.dragId || this.dragIsGroup) return false;
+    try {
+      const raw: string = await this.storage.readRaw(this.context);
+      if (!raw) return false;
+      if (raw === this.adoptedRaw) return true;
+      const data: AppData = normalizeData(JSON.parse(raw) as AppData);
+      this.adoptedRaw = raw;
+      this.data = data;
+      this.splitRatio = data.settings.todayPaneRatio;
+      this.updatePalette();
+      return true;
+    } catch (error) {
+      console.warn('外部日程变更无法解析，保留当前状态。');
+      return false;
+    }
   }
 
   private checkDate(): void {
-    if (!this.ready || todayKey() <= this.data.currentDate) return;
+    if (!this.ready || todayKey() <= realDateOf(this.data)) return;
     const action = new AppAction('ROLLOVER_TO');
     action.key = todayKey();
     this.dispatch(action);
@@ -305,14 +409,30 @@ struct Index {
 
   private dispatch(action: AppAction): void {
     if (!this.ready) return;
+    // 处理操作发生前的真实跨日；预览未来不能让日历时钟跳过午夜检查。
+    if (action.type !== 'ROLLOVER_TO' && todayKey() > realDateOf(this.data)) {
+      const elapsed = new AppAction('ROLLOVER_TO');
+      elapsed.key = todayKey();
+      this.data = reduce(this.data, elapsed);
+    }
+    if (action.type.startsWith('CHECKIN_')) {
+      const message = validateCheckInAction(this.data, action);
+      if (message) {
+        this.checkInFeedback(message);
+        return;
+      }
+    }
     const previousAnchor = this.data.todayAnchorId;
     const autoBefore = this.data.settings.autoScrollNextOnComplete;
+    const first = this.data.todayTasks.find((task: Task): boolean => !task.completed);
+    // 取消完成后再次勾选，下一项可能仍等于旧锚点，不能只靠锚点字符串变化触发。
+    const advance = autoBefore && action.type === 'TOGGLE_TODAY' && first?.id === action.id;
     this.getUIContext().animateTo(action.type === 'SET_SETTINGS' ? Motion.theme() : Motion.spring(), () => {
       this.data = reduce(this.data, action);
     });
     this.updatePalette();
     this.persist();
-    if (previousAnchor !== this.data.todayAnchorId ||
+    if (advance || previousAnchor !== this.data.todayAnchorId ||
       (!autoBefore && this.data.settings.autoScrollNextOnComplete)) {
       this.restoreAnchor();
     }
@@ -327,6 +447,12 @@ struct Index {
       if (revision === this.saveRevision) {
         this.saving = false;
         this.saveError = '';
+        this.adoptedRaw = JSON.stringify(this.data);
+        this.syncForm();
+        if (this.foregroundSyncPending) {
+          this.foregroundSyncPending = false;
+          this.foregroundChanged();
+        }
       }
     } catch (error) {
       if (revision === this.saveRevision) {
@@ -336,46 +462,128 @@ struct Index {
     }
   }
 
+  // 保存成功后把同一份视图数据推给桌面上已添加的卡片；未添加卡片时内部直接返回。
+  private syncForm(): void {
+    if (!this.context) return;
+    const mode: string = this.data.settings.themeMode;
+    const dark: boolean = mode === 'dark' || (mode === 'system' && this.systemDark);
+    FormSync.sync(this.context, this.data, dark).catch((): void => {
+      console.warn('桌面卡片同步未完成，日程数据不受影响。');
+    });
+  }
+
   private restoreAnchor(): void {
+    const revision = ++this.anchorRevision;
+    this.anchorPending = false;
     if (!this.ready || !this.data.settings.autoScrollNextOnComplete || this.page !== 0) return;
-    const index = this.data.todayTasks.findIndex((task: Task): boolean => !task.completed);
-    const target = index >= 0 ? this.data.todayTasks[index].id : null;
+    const first = this.data.todayTasks.find((task: Task): boolean => !task.completed);
+    const target = first ? first.id : null;
     if (this.data.todayAnchorId !== target) {
       const action = new AppAction('SET_TODAY_ANCHOR');
       action.id = target || '';
       this.data = reduce(this.data, action);
       this.persist();
     }
-    setTimeout((): void => { this.todayScroller.scrollToIndex(Math.max(0, index), true, ScrollAlign.START); }, 60);
+    this.anchorPending = true;
+    setTimeout((): void => {
+      if (revision === this.anchorRevision) this.applyPendingAnchor();
+    }, 60);
+  }
+
+  private applyPendingAnchor(): void {
+    if (!this.anchorPending) return;
+    if (!this.ready || this.page !== 0 || !this.data.settings.autoScrollNextOnComplete ||
+      this.dragId || this.dragIsGroup) {
+      this.anchorPending = false;
+      return;
+    }
+    // 首次加载 / 切页时定时器可能早于 List 挂载；由 didLayout 补做，不能静默丢掉定位。
+    const node = this.getUIContext().getFrameNodeById('list-today');
+    if (!node || node.getMeasuredSize().height <= 0) return;
+    this.anchorPending = false;
+    const index = this.data.todayTasks.findIndex((task: Task): boolean => !task.completed);
+    if (index < 0 || this.nearTodayBottom()) return;
+    this.todayScroller.scrollToIndex(index, true, ScrollAlign.START);
+  }
+
+  // 只按真实 List 视口判断末条日程是否完整露出；分区还包含标题，不能用分区高度。
+  private nearTodayBottom(): boolean {
+    const total = this.data.todayTasks.length;
+    if (total === 0) return true;
+    if (this.todayLastVisible >= 0 && this.todayLastVisible < total - 1) return false;
+    try {
+      const last = this.todayScroller.getItemRect(total - 1);
+      if (!last || last.width <= 0 || last.height <= 0) return false;
+      const viewport = this.todayViewportHeight();
+      if (viewport <= 0) return false;
+      return last.y + last.height <= viewport + 1;
+    } catch (error) {
+      // 非可视条目不保证能取到矩形；不能把无效矩形当成已经到底。
+      return false;
+    }
+  }
+
+  private todayViewportHeight(): number {
+    const node = this.getUIContext().getFrameNodeById('list-today');
+    if (node) {
+      const height = this.getUIContext().px2vp(node.getMeasuredSize().height);
+      if (height > 0) return height;
+    }
+    return this.todayHeight > 0 ? this.todayHeight : 0;
   }
 
   private navigate(page: number): void {
     this.resetDrag();
-    if (page < 2) {
+    if (page < 3) {
       this.tabsController.changeIndex(page);
     }
     this.getUIContext().animateTo(Motion.spring(), () => {
       // 历史页首次访问才建树，避免启动时默认位置到右侧隐藏位置产生退场动画。
-      if (page === 2) this.historyCreated = true;
+      if (page === 3) this.historyCreated = true;
       this.page = page;
     });
     if (page === 0) this.restoreAnchor();
   }
 
   private openModal(kind: string): void {
+    this.modalPressedButton = '';
     this.stopEdgeScroll();
     this.modal = kind;
     this.sheetShown = true;
   }
 
   private closeModal(): void {
+    this.modalPressedButton = '';
     this.sheetShown = false;
   }
 
+  // 非教程表单使用统一高度和内部滚动区，日历在小窗中也能完整访问。
   private sheetHeight(): SheetSize | Length {
-    if (this.modal === 'add' && this.editorSection === 'today') return '68%';
-    return this.modal === 'add' || this.modal === 'edit' || this.modal === 'move' ? '84%' : SheetSize.FIT_CONTENT;
+    return ['add', 'edit', 'move', 'date', 'restore'].includes(this.modal) ?
+      (this.viewportWidth >= 600 ? '90%' : '84%') : SheetSize.FIT_CONTENT;
   }
+  private modalButtonTouch(id: string, event: TouchEvent): void {
+    const next = ButtonFeedback.next(this.modalPressedButton, id, event.type);
+    if (next === this.modalPressedButton) return;
+    this.getUIContext().animateTo(Motion.quick(), (): void => { this.modalPressedButton = next; });
+  }
+
+  private modalTap(action: () => void): void { this.modalPressedButton = ''; action(); }
+
+  private selectBrowsingDate(key: string): void {
+    const action = new AppAction('SELECT_DATE');
+    action.key = key;
+    this.dispatch(action);
+    this.closeModal();
+  }
+
+  private selectRestoreTarget(target: string): void {
+    if (this.restoreTarget === target) return;
+    const animation = Motion.spring();
+    animation.onFinish = (): void => EditorMaterialRefresh.request(this.getUIContext());
+    this.getUIContext().animateTo(animation, (): void => { this.restoreTarget = target; });
+  }
+
   private tasks(section: string): Task[] {
     return section === 'today' ? this.data.todayTasks : this.data.futureTasks;
   }
@@ -403,6 +611,12 @@ struct Index {
   }
 
   private openEditor(section: string, task: Task | null = null): void {
+    if (task && task.checkInId) {
+      this.checkInRequestedId = task.checkInId;
+      this.navigate(1);
+      this.checkInRequestRevision++;
+      return;
+    }
     this.editorSection = section;
     this.selectedTask = task === null ? new Task() : task;
     this.selectedTarget = 0;
@@ -415,7 +629,8 @@ struct Index {
     try {
       const result = await this.getUIContext().getPromptAction().showDialog(Materials.confirmation(this.palette, {
       title: historyDate ? '删除历史日程' : '删除日程',
-      message: '确定永久删除“' + task.text + '”吗？此操作不可恢复。',
+      message: '确定永久删除“' + task.text + '”吗？此操作不可恢复。' +
+        (task.checkInId && historyDate ? '打卡页中的周期记录与统计仍会保留。' : ''),
       buttons: [{ text: '取消', color: this.palette.textSoft }, { text: '永久删除', color: this.palette.danger }]
     }));
       accepted = result.index === 1;
@@ -440,7 +655,7 @@ struct Index {
     try {
       const result = await this.getUIContext().getPromptAction().showDialog(Materials.confirmation(this.palette, {
       title: '清空历史日程',
-      message: '将永久删除全部历史记录，且不可恢复。确定继续吗？',
+      message: '将永久删除历史日程列表，且不可恢复。打卡页中的周期记录与统计仍会保留。确定继续吗？',
       buttons: [{ text: '取消', color: this.palette.textSoft }, { text: '清空', color: this.palette.danger }]
     }));
       accepted = result.index === 1;
@@ -451,6 +666,13 @@ struct Index {
   }
 
   private restoreTask(task: Task, date: string): void {
+    if (task.checkInId) {
+      const undo = new AppAction('CHECKIN_UNDO');
+      undo.id = task.checkInId;
+      undo.key = task.checkInKey;
+      this.dispatch(undo);
+      return;
+    }
     this.selectedTask = task;
     this.selectedHistoryDate = date;
     if (task.plannedDate && task.plannedDate >= this.data.currentDate) {
@@ -865,7 +1087,10 @@ struct Index {
 
   private startMoreObservation(): void {
     this.stopMoreObservation();
-    this.moreLayout = () => this.updateMoreBelow();
+    this.moreLayout = () => {
+      this.updateMoreBelow();
+      this.applyPendingAnchor();
+    };
     this.getUIContext().getUIObserver().on('didLayout', this.moreLayout);
   }
 
@@ -928,7 +1153,8 @@ struct Index {
   }
 
   private moreHintVisible(section: string): boolean {
-    return this.floatingPhase === 'idle' && (section === 'today' ? this.todayMoreBelow : this.futureMoreBelow);
+    // 渐隐属于列表视口，拖动浮层独立绘制；拾起、移动和落位均保留真实下溢提示。
+    return section === 'today' ? this.todayMoreBelow : this.futureMoreBelow;
   }
 
   private tabsBottomPadding(): number {
@@ -962,6 +1188,8 @@ struct Index {
   }
 
   private futureDragBottom(bottom: number): number {
+    // 宽屏双栏已在底栏上方留空，两栏均使用真实可见高度。
+    if (this.wideLayout) return bottom;
     // 使用原生 TabBar 外框，不把图标或文字内部矩形误作遮挡边界。
     let node = this.getUIContext().getFrameNodeById('tab-home');
     for (let depth = 0; node && depth < 8; depth++) {
@@ -1170,6 +1398,12 @@ struct Index {
       let index = this.dropIndex;
       const sourceIndex = this.tasks(this.dragSection).findIndex((item: Task): boolean => item.id === task.id);
       if (this.dropSection === this.dragSection && sourceIndex < index) index--;
+      if (task.checkInId && this.dropSection === 'future') {
+        this.checkInFeedback('打卡按周期生成，不能移到未来日程；可在打卡页调整计划。');
+        event.setResult(DragResult.DRAG_CANCELED);
+        this.resetDrag(true);
+        return;
+      }
       if (this.dragSection === 'today' && this.dropSection === 'future') {
         this.selectedTask = task;
         this.editorSection = 'future';
@@ -1244,7 +1478,7 @@ struct Index {
     Stack() {
       TaskCardView({ task: this.currentTask(section, taskId), order: this.currentIndex(section, taskId) + 1,
         showNumber: this.data.settings.autoNumber, showDefaultProgress: this.data.settings.progressDefaultZero,
-        showDates: section === 'future', palette: this.palette, dragged: this.floatingSource(taskId),
+        showDates: section === 'future', viewedDate: this.data.currentDate, realDate: todayKey(), palette: this.palette, dragged: this.floatingSource(taskId),
         onToggle: () => this.toggle(this.currentTask(section, taskId), section),
         onEdit: () => this.openEditor(section, this.currentTask(section, taskId)) })
     }.width('100%').id('task-' + taskId)
@@ -1269,11 +1503,11 @@ struct Index {
         GroupDragVisual({ groupName: this.floatingTask.group || '未分组', tasks: this.floatingTasks,
           members: this.floatingMembers, palette: this.palette, progress: this.floatingLift,
           showNumber: this.data.settings.autoNumber, showDefaultProgress: this.data.settings.progressDefaultZero,
-          showDates: this.floatingSection === 'future' })
+          showDates: this.floatingSection === 'future', viewedDate: this.data.currentDate, realDate: todayKey() })
       } else {
         TaskCardView({ task: this.floatingTask, order: this.floatingOrder, showNumber: this.data.settings.autoNumber,
           showDefaultProgress: this.data.settings.progressDefaultZero, showDates: this.floatingSection === 'future',
-          palette: this.palette, preview: true })
+          viewedDate: this.data.currentDate, realDate: todayKey(), palette: this.palette, preview: true })
       }
     }.width(this.floatingWidth).height(this.floatingHeight).borderRadius(16)
       .position({ x: this.floatingX, y: this.floatingY })
@@ -1299,13 +1533,13 @@ struct Index {
                   .fontColor(this.palette.textSoft).layoutWeight(1)
                 if (this.currentTask(section, task.id).group !== null) {
                   Row() {
-                    IconButton({ icon: 'trash', label: '删除本区分组', palette: this.palette, buttonSize: 22,
+                    IconButton({ icon: 'trash', label: '删除本区分组', palette: this.palette, buttonSize: 32, iconSize: 18, cornerRadius: 10,
                       onTap: () => this.deleteGroup(section, this.currentTask(section, task.id).group) })
                   }.width(44).justifyContent(FlexAlign.Center)
                 }
-              }.width('100%').constraintSize({ minHeight: 22 }).alignItems(VerticalAlign.Top).padding({ left: 6 })
-                // 文字从列表顶边开始；紧凑标题与普通首卡共用同一顶部留白。
-                .id('group-' + section + '-' + task.id).margin({ bottom: 12 })
+              }.width('100%').constraintSize({ minHeight: 32 }).alignItems(VerticalAlign.Center).padding({ left: 6 })
+                // 32vp 背板完整包住18vp图标；收紧行后间距，避免分组标题与卡片被拉远。
+                .id('group-' + section + '-' + task.id).margin({ bottom: 6 })
                 .backgroundColor(Color.Transparent).borderRadius(14)
                 .opacity(this.floatingHeader(section, task.id) ? 1 - this.floatingLift : 1)
                 .draggable(false)
@@ -1352,7 +1586,7 @@ struct Index {
         }.width('100%')
           .id('list-end-' + section)
       }
-    }.width('calc(100% + 32vp)').padding({ left: 16, right: 16, top: 4, bottom: 12 })
+    }.width('100%').padding({ left: 16, right: 16, top: 4, bottom: 12 })
       // 水平留白保持卡片宽度与横坐标；顶部收紧，浮起与阴影由根浮层绘制。
       .clipContent(ContentClipMode.BOUNDARY)
       .height('100%').scrollBar(BarState.Auto).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
@@ -1374,17 +1608,26 @@ struct Index {
       })
   }
 
+  private moreFadeHeight(section: string): number {
+    // 未来区从浮栏上方开始渐隐，一直连续延伸到屏幕底边，避免在胶囊顶部截出一条边。
+    const height = section === 'today' ? this.todayHeight : this.futureHeight;
+    const span = 30 + (section === 'future' ? this.futureMoreInset : 0);
+    return Math.min(Math.max(0, height), span);
+  }
+
   @Builder
   private moreBelowHint(section: string) {
-    Row().width('100%').height(30).borderRadius(12)
-      .linearGradient({ direction: GradientDirection.Bottom, colors: [
-        ['#00' + this.palette.bgSoft.substring(1), 0], ['#66' + this.palette.bgSoft.substring(1), 0.55],
-        ['#D9' + this.palette.bgSoft.substring(1), 1]
-      ] })
-      .margin({ bottom: section === 'future' ? this.futureMoreInset : 0 })
-      .opacity(this.moreHintVisible(section) ? 1 : 0)
-      .translate({ y: this.moreHintVisible(section) ? 0 : 3 })
-      .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
+    Column({ space: 0 }) {
+      Blank().layoutWeight(1).backgroundColor(Color.White).hitTestBehavior(HitTestMode.None)
+      Row().width('100%').height(this.moreFadeHeight(section)).hitTestBehavior(HitTestMode.None)
+        .linearGradient({ direction: GradientDirection.Bottom, colors: [
+          [Color.White, 0], [Color.White, 0.08],
+          [this.moreHintVisible(section) ? Color.Transparent : Color.White, 1]
+        ] })
+    }.width('100%').height('100%')
+      // 白色只提供 alpha，不参与最终颜色；真实圆角、主页渐变和底栏保持各自原有绘制。
+      .blendMode(BlendMode.DST_IN, BlendApplyType.OFFSCREEN)
+      .hitTestBehavior(HitTestMode.Transparent).accessibilityLevel('no-hide-descendants')
       .id('more-below-' + section)
   }
 
@@ -1404,8 +1647,20 @@ struct Index {
       Stack({ alignContent: Alignment.Bottom }) {
         this.taskList(section)
         this.moreBelowHint(section)
-      }.width('100%').layoutWeight(1)
+      }.width('calc(100% + 32vp)').layoutWeight(1)
+        // 完整视口统一离屏混合；蒙版作为直接子节点显式穿透，不用会生成命中宿主的 overlay。
+        .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
     }.width('100%').height('100%')
+  }
+
+  @Builder
+  private widePane(section: string) {
+    Column() {
+      this.pane(section)
+    }.layoutWeight(1).height('100%').padding({ left: 20, right: 20, top: 14, bottom: 8 })
+      .backgroundColor('#50' + this.palette.panel.substring(1)).borderRadius(24)
+      .border({ width: 1, radius: 24, color: this.palette.border })
+      .id('wide-pane-' + section)
   }
 
   @Builder
@@ -1425,39 +1680,59 @@ struct Index {
               '今天还没有日程，加一条吧').fontSize(12).fontColor(this.palette.textSoft)
             if (this.data.todayTasks.length > 0) {
               Progress({ value: this.doneCount(), total: this.data.todayTasks.length, type: ProgressType.Linear })
-                .width(40).color(this.palette.success).backgroundColor(this.palette.border).style({ strokeWidth: 4 })
+                .width(40).color(this.palette.accent).backgroundColor(this.palette.border).style({ strokeWidth: 4 })
             }
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         IconButton({ icon: 'calendar', label: '选择日期', palette: this.palette, onTap: () => { this.openModal('date'); } })
       }.width('100%').padding({ top: 8, bottom: 18 })
+      if (this.data.currentDate > todayKey()) {
+        Row({ space: 10 }) {
+          Column({ space: 4 }) {
+            Text('正在预览 ' + formatFull(this.data.currentDate)).fontSize(12).fontWeight(FontWeight.Medium)
+              .fontColor(this.palette.accent).width('100%')
+            Text('此前未完成的日程也会在此日展示；“预计延期”不代表真实日期已过去。')
+              .fontSize(11).lineHeight(16).fontColor(this.palette.textSoft).width('100%')
+          }.layoutWeight(1)
+          MaterialButtonScope({ palette: this.palette, controlHeight: 40, content: () => { this.previewReturnButton(); } }).width(88).height(40)
+        }.width('100%').padding(12).borderRadius(16).backgroundColor(this.palette.panel2)
+          .margin({ bottom: 10 }).id('date-preview-notice')
+      }
       if (this.saveError) {
         Text(this.saveError).fontColor(this.palette.danger).fontSize(12).width('100%').height(36)
           .onClick(() => this.persist())
       }
-      Column() {
+      if (this.wideLayout) {
+        Row({ space: 24 }) {
+          this.widePane('today')
+          this.widePane('future')
+        }.width('100%').layoutWeight(1).alignItems(VerticalAlign.Top)
+          .padding({ top: 8, bottom: 100 + this.safeBottom }).id('wide-schedule-panes')
+      } else {
         Column() {
-          this.pane('today')
-        }.width('100%').height(this.todayPaneHeight())
-        Row() {
-          Row().width(42).height(4).backgroundColor(this.palette.border).borderRadius(2)
-        }.width('100%').height(24).justifyContent(FlexAlign.Center).id('pane-divider')
-          .accessibilityText('拖动调整当日与未来区域大小')
-          .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 2 })
-            .onActionStart(() => { this.splitStart = this.clampSplitRatio(this.splitRatio); })
-            .onActionUpdate((event: GestureEvent) => {
-              this.splitRatio = this.clampSplitRatio(this.splitStart + event.offsetY / this.splitBaseHeight());
-            })
-            .onActionEnd(() => this.commitRatio())
-            .onActionCancel(() => { this.splitRatio = this.data.settings.todayPaneRatio; }))
-        Column() {
-          this.pane('future')
-        }.width('100%').layoutWeight(1)
-      }.width('100%').layoutWeight(1).onAreaChange((_oldArea: Area, area: Area) => {
-        this.paneHeight = Math.max(1, Number(area.height) - 24);
-      })
-    }.height('100%').width('100%').constraintSize({ maxWidth: 720 })
-      .padding({ left: 16, right: 16, top: this.safeTop }).backgroundColor(Color.Transparent)
+          Column() {
+            this.pane('today')
+          }.width('100%').height(this.todayPaneHeight())
+          Row() {
+            Row().width(42).height(4).backgroundColor(this.palette.border).borderRadius(2)
+          }.width('100%').height(24).justifyContent(FlexAlign.Center).id('pane-divider')
+            .accessibilityText('拖动调整当日与未来区域大小')
+            .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 2 })
+              .onActionStart(() => { this.splitStart = this.clampSplitRatio(this.splitRatio); })
+              .onActionUpdate((event: GestureEvent) => {
+                this.splitRatio = this.clampSplitRatio(this.splitStart + event.offsetY / this.splitBaseHeight());
+              })
+              .onActionEnd(() => this.commitRatio())
+              .onActionCancel(() => { this.splitRatio = this.data.settings.todayPaneRatio; }))
+          Column() {
+            this.pane('future')
+          }.width('100%').layoutWeight(1)
+        }.width('100%').layoutWeight(1).onAreaChange((_oldArea: Area, area: Area) => {
+          this.paneHeight = Math.max(1, Number(area.height) - 24);
+        })
+      }
+    }.height('100%').width('100%').constraintSize({ maxWidth: ResponsiveLayout.contentWidth(this.viewportWidth) })
+      .padding({ left: ResponsiveLayout.gutter(this.viewportWidth), right: ResponsiveLayout.gutter(this.viewportWidth), top: this.safeTop }).backgroundColor(Color.Transparent)
   }
 
   @Builder
@@ -1469,10 +1744,132 @@ struct Index {
   }
 
   @Builder
-  private actionButton(title: string, action: () => void, danger: boolean = false) {
-    Button(title, { type: ButtonType.Normal }).height(48).width('100%')
-      .backgroundColor(Materials.inset(this.palette, false, danger))
-      .fontColor(danger ? this.palette.danger : this.palette.text).fontSize(15).borderRadius(10).onClick(action)
+  private previewReturnButton() {
+    Button('回到今天', { type: ButtonType.Normal }).width('100%').fontSize(12).height(40).borderRadius(12)
+      .fontColor(this.palette.accent).attributeModifier(new PlanerControlModifier(this.palette, true))
+      .onClick(() => {
+        const action = new AppAction('SELECT_DATE');
+        action.key = todayKey();
+        this.dispatch(action);
+      }).id('preview-return-today')
+  }
+
+  @Builder
+  private modalActionContent(title: string, icon: string, id: string, action: () => void) {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      Row({ space: 8 }) {
+        PlanerIcon({ icon: icon, color: this.palette.accent, iconSize: 18 })
+        Text(title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.accent)
+      }.width('100%').justifyContent(FlexAlign.Center)
+    }.height(46).width('100%').padding(0).borderRadius(12).id(id)
+      .attributeModifier(new PlanerControlModifier(this.palette, true))
+      .scale({ x: ButtonFeedback.scale(this.modalPressedButton, id), y: ButtonFeedback.scale(this.modalPressedButton, id) })
+      .onTouch((event: TouchEvent): void => this.modalButtonTouch(id, event))
+      .onClick(() => this.modalTap(action))
+      .onDisAppear(() => { if (this.modalPressedButton === id) this.modalPressedButton = ''; })
+  }
+
+  @Builder
+  private actionButton(title: string, icon: string, id: string, action: () => void) {
+    MaterialButtonScope({ palette: this.palette, controlHeight: 46, radius: 12,
+      content: () => { this.modalActionContent(title, icon, id, action); } }).width('100%').height(46)
+  }
+
+  @Builder
+  private dateSelectionBody() {
+    Column({ space: 12 }) {
+      Text('浏览日期').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
+      Text('浏览未来不会提前归档今天的完成项；未完成项会一起顺延展示')
+        .fontSize(13).lineHeight(20).fontColor(this.palette.textSoft).width('100%')
+      PlanerCalendar({ value: this.data.currentDate, minDate: todayKey(), marks: this.markedDates(), palette: this.palette,
+        onSelect: (key: string) => this.selectBrowsingDate(key) })
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private restoreTaskBody() {
+    Column({ space: 10 }) {
+      Text('日程内容').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
+      Text(this.selectedTask.text).fontSize(15).lineHeight(22).fontColor(this.palette.textSoft).width('100%')
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private restoreTargetButton(target: string, title: string, icon: string) {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      Row({ space: 6 }) {
+        PlanerIcon({ icon: icon, color: this.restoreTarget === target ? this.palette.accent : this.palette.textSoft, iconSize: 18 })
+        Text(title).fontSize(13).fontColor(this.restoreTarget === target ? this.palette.accent : this.palette.text)
+      }.width('100%').justifyContent(FlexAlign.Center)
+    }.id('restore-target-' + target).width('100%').height(44).padding(0).borderRadius(12)
+      .attributeModifier(new PlanerControlModifier(this.palette, this.restoreTarget === target))
+      .accessibilityText(title + (this.restoreTarget === target ? '，已选中' : ''))
+      .scale({ x: ButtonFeedback.scale(this.modalPressedButton, 'restore-' + target),
+        y: ButtonFeedback.scale(this.modalPressedButton, 'restore-' + target) })
+      .onTouch((event: TouchEvent): void => this.modalButtonTouch('restore-' + target, event))
+      .onClick(() => this.modalTap(() => this.selectRestoreTarget(target)))
+  }
+
+  @Builder
+  private restoreTargetBody() {
+    Column({ space: 12 }) {
+      Text('恢复位置').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
+      Text('原计划日期已过，请选择恢复方式。').fontSize(13).lineHeight(20).fontColor(this.palette.textSoft).width('100%')
+      Row({ space: 10 }) {
+        MaterialButtonScope({ palette: this.palette, controlHeight: 44,
+          content: () => { this.restoreTargetButton('today', '恢复到当日', 'home'); } }).layoutWeight(1).height(44)
+        MaterialButtonScope({ palette: this.palette, controlHeight: 44,
+          content: () => { this.restoreTargetButton('future', '恢复到未来', 'calendar'); } }).layoutWeight(1).height(44)
+      }.width('100%')
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private restoreDateBody() {
+    Column({ space: 10 }) {
+      Text('恢复日期').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
+      PlanerCalendar({ value: this.restoreDate, minDate: this.data.currentDate, palette: this.palette,
+        onSelect: (key: string) => { this.restoreDate = key; } })
+    }.width('100%').padding(14)
+  }
+
+  @Builder
+  private dateAndRestoreContent() {
+    Column() {
+      Column() { this.modalTitle(this.modal === 'date' ? '选择日期' : '恢复日程') }
+        .width('100%').padding({ left: 20, right: 12, top: 12 })
+      Divider().color(this.palette.border)
+      Scroll(this.modalScroller) {
+        Column({ space: 16 }) {
+          if (this.modal === 'date') {
+            MaterialSection({ palette: this.palette, viewportId: 'index-modal-scroll',
+              content: () => { this.dateSelectionBody(); } }).width('100%')
+          } else {
+            MaterialSection({ palette: this.palette, viewportId: 'index-modal-scroll',
+              content: () => { this.restoreTaskBody(); } }).width('100%')
+            MaterialSection({ palette: this.palette, viewportId: 'index-modal-scroll',
+              content: () => { this.restoreTargetBody(); } }).width('100%')
+            if (this.restoreTarget === 'future') {
+              MaterialSection({ palette: this.palette, viewportId: 'index-modal-scroll',
+                content: () => { this.restoreDateBody(); } }).width('100%').transition(Motion.reveal())
+            }
+          }
+        }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 24 })
+          .alignItems(HorizontalAlign.Start)
+      }.id('index-modal-scroll').width('100%').layoutWeight(1).align(Alignment.TopStart).scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        .onAreaChange(() => EditorMaterialRefresh.request(this.getUIContext()))
+        .onDidScroll(() => EditorMaterialRefresh.request(this.getUIContext()))
+      Divider().color(this.palette.border)
+      Column() {
+        if (this.modal === 'date') {
+          this.actionButton('回到今天', 'calendar', 'date-return-today', () => this.selectBrowsingDate(todayKey()))
+        } else {
+          this.actionButton('确认恢复', 'restore', 'restore-confirm', () => this.restoreSelected())
+        }
+      }.width('100%').constraintSize({ maxWidth: 520 }).padding({ left: 20, right: 20, top: 14, bottom: 18 })
+    }.width('100%').height('100%').backgroundColor(Color.Transparent)
+      .onAreaChange(() => EditorMaterialRefresh.request(this.getUIContext()))
   }
 
   @Builder
@@ -1485,44 +1882,26 @@ struct Index {
         onAction: (action: AppAction) => this.dispatch(action), onClose: () => { this.closeModal(); },
         onDelete: () => this.deleteEditingTask()
       })
-    } else if (this.modal === 'date') {
-      Column({ space: 10 }) {
-        this.modalTitle('选择日期')
-        Text('查看、编辑今天或未来的日程').fontSize(13).fontColor(this.palette.textSoft).width('100%')
-        PlanerCalendar({ value: this.data.currentDate, minDate: todayKey(), marks: this.markedDates(), palette: this.palette,
-          onSelect: (key: string) => {
-            const action = new AppAction(key > this.data.currentDate ? 'ROLLOVER_TO' : 'ROLLBACK_TO');
-            action.key = key;
-            this.dispatch(action);
-            this.closeModal();
-          } })
-        this.actionButton('回到今天', () => {
-          const action = new AppAction('ROLLBACK_TO');
-          action.key = todayKey();
-          this.dispatch(action);
-          this.closeModal();
-        })
-      }.width('100%').padding(20)
-    } else if (this.modal === 'restore') {
-      Column({ space: 12 }) {
-        this.modalTitle('恢复日程')
-        Text('原计划日期已过，请选择恢复方式。').fontSize(13).fontColor(this.palette.textSoft).width('100%')
-        Row({ space: 8 }) {
-          Button('恢复到当日', { type: ButtonType.Normal }).height(44).layoutWeight(1).borderRadius(10)
-            .backgroundColor(this.restoreTarget === 'today' ? this.palette.accentSoft : this.palette.panel2)
-            .fontColor(this.palette.text).onClick(() => { this.getUIContext().animateTo(Motion.spring(), () => { this.restoreTarget = 'today'; }); })
-          Button('恢复到未来', { type: ButtonType.Normal }).height(44).layoutWeight(1).borderRadius(10)
-            .backgroundColor(this.restoreTarget === 'future' ? this.palette.accentSoft : this.palette.panel2)
-            .fontColor(this.palette.text).onClick(() => { this.getUIContext().animateTo(Motion.spring(), () => { this.restoreTarget = 'future'; }); })
-        }
-        if (this.restoreTarget === 'future') {
-          PlanerCalendar({ value: this.restoreDate, minDate: this.data.currentDate, palette: this.palette,
-            onSelect: (key: string) => { this.restoreDate = key; } })
-        }
-        this.actionButton('确认恢复', () => this.restoreSelected())
-      }.width('100%').padding(20)
-
+    } else if (this.modal === 'date' || this.modal === 'restore') {
+      this.dateAndRestoreContent()
     }
+  }
+
+  @Builder
+  private modalSurfaceContent() {
+    SheetMaterialSurface({ palette: this.palette, content: () => { this.modalContent(); } })
+  }
+
+  private checkInFeedback(message: string): void {
+    try { this.getUIContext().getPromptAction().showToast({ message: message }); }
+    catch (_) { console.warn('打卡操作反馈暂不可用'); }
+  }
+
+  private checkInTabSymbol(): TabBarSymbol {
+    return {
+      normal: new SymbolGlyphModifier($r('sys.symbol.checkmark_circle')).fontColor([this.palette.textSoft]),
+      selected: new SymbolGlyphModifier($r('sys.symbol.checkmark_circle_fill')).fontColor([this.palette.accent])
+    };
   }
 
   build() {
@@ -1548,11 +1927,20 @@ struct Index {
                 .id('tab-home').iconStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft })
                 .labelStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft }))
               TabContent() {
-                SettingsView({ data: this.data, palette: this.palette, scroller: this.settingsScroller,
-                  onAction: (action: AppAction) => this.dispatch(action), onHistory: () => this.navigate(2),
+                CheckInView({ data: this.data, palette: this.palette, windowWidth: this.viewportWidth,
+                  safeBottom: Math.max(0, this.safeBottom - this.tabsBottomPadding()),
+                  requestedItemId: this.checkInRequestedId, requestRevision: this.checkInRequestRevision,
+                  saveError: this.saveError, onRetrySave: () => this.persist(),
+                  onSheetChange: (shown: boolean) => { this.checkInSheetShown = shown; },
+                  onAction: (action: AppAction) => this.dispatch(action) })
+              }.tabBar(BottomTabBarStyle.of(this.checkInTabSymbol(), '打卡')
+                .id('tab-checkin').labelStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft }))
+              TabContent() {
+                SettingsView({ data: this.data, palette: this.palette, windowWidth: this.viewportWidth, scroller: this.settingsScroller,
+                  onAction: (action: AppAction) => this.dispatch(action), onHistory: () => this.navigate(3),
                   onTutorial: () => this.openTutorial() })
                   .padding({ bottom: this.safeBottom - this.tabsBottomPadding() })
-              }.tabBar(BottomTabBarStyle.of(this.displayedTab === 1 ? $r('app.media.gearshape_fill_tab') : $r('app.media.gearshape_tab'), '设置')
+              }.tabBar(BottomTabBarStyle.of(this.displayedTab === 2 ? $r('app.media.gearshape_fill_tab') : $r('app.media.gearshape_tab'), '设置')
                 .id('tab-settings').iconStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft })
                 .labelStyle({ selectedColor: this.palette.accent, unselectedColor: this.palette.textSoft }))
             }
@@ -1568,11 +1956,11 @@ struct Index {
             })
             // 首次创建使用插入转场，访问后保留实例与滚动位置；以后仍按原位移动画进出。
             if (this.historyCreated) {
-              HistoryView({ data: this.data, palette: this.palette, scroller: this.historyScroller,
-                onBack: () => this.navigate(1), onRestore: (task: Task, date: string) => this.restoreTask(task, date),
+              HistoryView({ data: this.data, palette: this.palette, windowWidth: this.viewportWidth, scroller: this.historyScroller,
+                onBack: () => this.navigate(2), onRestore: (task: Task, date: string) => this.restoreTask(task, date),
                 onDelete: (task: Task, date: string) => this.confirmDelete(task, date), onClear: () => this.clearHistory() })
                 .padding({ bottom: this.safeBottom - this.tabsBottomPadding() })
-                .translate({ x: this.page === 2 ? '0%' : '100%' })
+                .translate({ x: this.page === 3 ? '0%' : '100%' })
                 .backgroundColor(this.palette.bg)
                 .transition(TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()))
                 .id('history-page')
@@ -1582,19 +1970,35 @@ struct Index {
 
         }
         this.floatingPreview()
-        if (this.tutorialShown) {
-          TutorialView({ palette: this.palette, safeTop: this.safeTop, safeBottom: this.safeBottom,
-            saveError: this.tutorialError, onClose: (): void => this.dismissTutorial(),
-            onRetry: (): void => { this.saveTutorial(true); } }).zIndex(30)
-        }
+        // 独立稳定宿主，避免与日程表单共用同一个 bindSheet 覆盖彼此。
+        Row().width(1).height(1).position({ x: 0, y: 0 }).hitTestBehavior(HitTestMode.None)
+          .bindSheet($$this.tutorialShown, this.tutorialSurfaceContent(), Materials.sheet(this.palette, {
+            height: '94%', width: ResponsiveLayout.sheetWidth(this.viewportWidth, false), preferType: SheetType.BOTTOM, dragBar: true, showClose: false,
+            radius: { topLeft: 26, topRight: 26, bottomLeft: 26, bottomRight: 26 },
+            onDisappear: (): void => {
+              this.tutorialEntered = false;
+              if (!this.tutorialShown) this.completeTutorial();
+            }
+          }))
       }.id('planer-root').width('100%').height('100%')
+        .onAreaChange((_old: Area, area: Area) => {
+          const width = Number(area.width);
+          if (width <= 0 || Math.abs(width - this.viewportWidth) < 1) return;
+          const wide = ResponsiveLayout.wide(width);
+          if (wide !== this.wideLayout) this.resetDrag();
+          this.viewportWidth = width;
+          this.wideLayout = wide;
+        })
         .backgroundColor(this.palette.bg)
         .linearGradient({ direction: GradientDirection.Bottom, colors: [
           [this.palette.bg, 0.0], [this.palette.bgSoft, 0.65], [this.palette.accentSoft, 1.0]
         ] })
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-        .bindSheet($$this.sheetShown, this.modalContent(), Materials.sheet(this.palette, {
-          height: this.sheetHeight(), dragBar: false, showClose: false,
+        .bindSheet($$this.sheetShown, this.modalSurfaceContent(), Materials.sheet(this.palette, {
+          height: this.sheetHeight(), width: ResponsiveLayout.sheetWidth(this.viewportWidth, this.modal === 'edit' || this.modal === 'move' ||
+            (this.modal === 'add' && this.editorSection === 'future')),
+          preferType: this.viewportWidth >= 600 ? SheetType.CENTER : SheetType.BOTTOM,
+          dragBar: false, showClose: false,
           radius: { topLeft: 24, topRight: 24, bottomLeft: 24, bottomRight: 24 },
           keyboardAvoidMode: SheetKeyboardAvoidMode.NONE,
           onDisappear: () => {

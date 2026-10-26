@@ -1,3 +1,4 @@
+import { ResponsiveLayout } from '../theme/ResponsiveLayout';
 import { HdsNavigation, HdsNavigationTitleMode, HdsNavigationTitleBarStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { AppAction, AppData, HistoryEntry, Settings } from '../model/PlanerModel';
 import { Palette, paletteFor } from '../theme/Theme';
@@ -8,6 +9,7 @@ import { ThemeModePicker } from './ThemeModePicker';
 @Component
 export struct SettingsView {
   @StorageProp('planerSafeTop') safeTop: number = 0;
+  @Prop windowWidth: number = 0;
   @Prop data: AppData = new AppData();
   @Prop palette: Palette = new Palette();
   scroller: Scroller = new Scroller();
@@ -24,6 +26,7 @@ export struct SettingsView {
     };
   }
   private toggleValue(key: string): boolean {
+    if (key === 'retainCompletedFutureUntilDue') return this.data.settings.retainCompletedFutureUntilDue;
     if (key === 'autoNumber') return this.data.settings.autoNumber;
     if (key === 'progressDefaultZero') return this.data.settings.progressDefaultZero;
     if (key === 'autoScrollNextOnComplete') return this.data.settings.autoScrollNextOnComplete;
@@ -37,6 +40,7 @@ export struct SettingsView {
     if (key === 'progressDefaultZero') settings.progressDefaultZero = value;
     if (key === 'autoScrollNextOnComplete') settings.autoScrollNextOnComplete = value;
     if (key === 'showGroups') settings.showGroups = value;
+    if (key === 'retainCompletedFutureUntilDue') settings.retainCompletedFutureUntilDue = value;
     this.save(settings);
   }
 
@@ -116,11 +120,9 @@ export struct SettingsView {
       .accessibilityText(`配色${this.presetName(id)}`).id('preset-' + id).onClick(() => this.preset(id))
   }
 
-  build() {
-    HdsNavigation() {
-      Scroll(this.scroller) {
-      Column({ space: 14 }) {
-
+  @Builder
+  private displaySettings() {
+    Column({ space: 14 }) {
         this.heading('日程显示设置')
         Column({ space: 6 }) {
           this.toggleRow('autoNumber', '自动编号', '当日与未来日程各自从 1 开始编号')
@@ -130,8 +132,16 @@ export struct SettingsView {
           this.toggleRow('autoScrollNextOnComplete', '完成后自动定位下一项', '完成第一个未完成日程后，定位并记住下一项')
           Divider().color(this.palette.border)
           this.toggleRow('showGroups', '按分组显示日程', '关闭仅隐藏分组，保留已设置的分组信息')
+          Divider().color(this.palette.border)
+          this.toggleRow('retainCompletedFutureUntilDue', '未来日程完成后保留至截止日', '开启后，已完成项保留至截止日结束，可取消完成；关闭会立即归档已完成项。桌面卡片同步生效。')
         }.padding(16).width('100%').borderRadius(16)
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private appearanceSettings() {
+    Column({ space: 14 }) {
         this.heading('外观主题')
         Column({ space: 14 }) {
           Text('主题模式').fontSize(13).fontColor(this.palette.textSoft).width('100%')
@@ -147,6 +157,12 @@ export struct SettingsView {
           }, (row: number) => row.toString())
         }.padding(16).width('100%').borderRadius(16).id('theme-presets')
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private historySettings() {
+    Column({ space: 14 }) {
         this.heading('数据与历史')
         Button({ type: ButtonType.Normal }) {
           Row({ space: 12 }) {
@@ -161,6 +177,12 @@ export struct SettingsView {
         }.padding(16).width('100%').borderRadius(16)
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
           .onClick(() => this.onHistory()).id('settings-history')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private helpSettings() {
+    Column({ space: 14 }) {
         this.heading('帮助与使用')
         Button({ type: ButtonType.Normal }) {
           Row({ space: 12 }) {
@@ -174,10 +196,36 @@ export struct SettingsView {
         }.padding(16).width('100%').borderRadius(16)
           .backgroundColor(Materials.fallback(this.palette)).backgroundBlurStyle(BlurStyle.COMPONENT_THIN, { colorMode: Materials.mode(this.palette) })
           .onClick(() => this.onTutorial()).id('settings-tutorial')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  build() {
+    HdsNavigation() {
+      Scroll(this.scroller) {
+      Column({ space: 14 }) {
+
+        if (ResponsiveLayout.wide(this.windowWidth)) {
+          Row({ space: 24 }) {
+            Column({ space: 22 }) {
+              this.displaySettings()
+              this.historySettings()
+            }.layoutWeight(1)
+            Column({ space: 22 }) {
+              this.appearanceSettings()
+              this.helpSettings()
+            }.layoutWeight(1)
+          }.width('100%').alignItems(VerticalAlign.Top).id('wide-settings-columns')
+        } else {
+          this.displaySettings()
+          this.appearanceSettings()
+          this.historySettings()
+          this.helpSettings()
+        }
         Text($r('app.string.local_save_brand')).fontSize(12).fontColor(this.palette.textFaint)
           .textAlign(TextAlign.Center).width('100%').margin({ top: 10 })
-      }.padding({ left: 16, right: 16, top: this.safeTop + 56, bottom: 100 }).width('100%')
-    }.id('settings-scroll').width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Auto)
+      }.padding({ left: ResponsiveLayout.gutter(this.windowWidth), right: ResponsiveLayout.gutter(this.windowWidth), top: this.safeTop + 56, bottom: 100 }).width('100%')
+        .constraintSize({ maxWidth: 1184 })
+    }.id('settings-scroll').width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Auto)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(Color.Transparent).clip(false)
     }.width('100%').height('100%').backgroundColor(Color.Transparent)
       .mode(NavigationMode.Stack).hideBackButton(true).hideToolBar(true)

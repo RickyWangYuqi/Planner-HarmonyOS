@@ -2,9 +2,10 @@
   "app": {
     "bundleName": "com.example.planerharmony",
     "vendor": "example",
-    "versionCode": 1000000,
-    "versionName": "1.0.0",
+    "versionCode": 1200000,
+    "versionName": "1.2.0",
     "buildVersion": "1",
+    "debug": false,
     "icon": "$media:planer_icon",
     "label": "$string:app_name"
   }

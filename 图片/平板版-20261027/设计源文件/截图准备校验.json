@@ -1,0 +1,160 @@
+{
+  "preparedAt": "2026-10-27T04:30:21.8591746+08:00",
+  "method": "原尺寸图片固定 HTML 视口导出，top=-88px",
+  "sourceChecks": [
+    {
+      "file": "01-双栏日程-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "437C70EB9DA465F26161D4AD5D025CF3DD9B48AAE0BB54D2D01069C353E699CA"
+    },
+    {
+      "file": "02-周期打卡-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "695B9EFC79ED4718C0CC0F513C3B40FB884058FC03B6005F0B6C960A32D2C51C"
+    },
+    {
+      "file": "03-自动接续-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "7E8EF76E55C2F49ACDAAC2FF14D32E8205A51A7D9D394E57EEEBF4589F00203E"
+    },
+    {
+      "file": "04-打卡回顾-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "1305B6F34BD7746970E88B04963AEA323691F64EE7FD3EDF47D02C21E243B3CA"
+    },
+    {
+      "file": "05-分组与进度-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "1D9266F825B842A6112158DB33F1729C292DDECB80AEDABA8274823C5CA9148D"
+    },
+    {
+      "file": "06-未来安排-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "143B1FD5ACFDB3878E222397D2AA21BFF17478722292DB4AD3C87401862D53E9"
+    },
+    {
+      "file": "07-个性设置-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "2AA18E1BD906CE38BE9F6165ABEDAAAD6B21B4A8942DE5A2D7783A1C96EE9A55"
+    },
+    {
+      "file": "08-深色主题-full.png",
+      "width": 2800,
+      "height": 1840,
+      "sha256": "B972B71AE104A49E5F0BA8C30687FA6ABA743D48F7E1A0251E827ECF5FEE8AC1"
+    }
+  ],
+  "outputChecks": [
+    {
+      "file": "01-双栏日程.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 725630,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "3F5A26345170EC14AB75819AD39D82F288FB71A4B8C05927F8C7F8D21C7AC3AA"
+    },
+    {
+      "file": "02-周期打卡.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 113728,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "347AE949A6CED0F8F477DF1C3FC114C151EF3529B73132DA12B013FC6EB07D75"
+    },
+    {
+      "file": "03-自动接续.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 209324,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "7F04EFA9B424D759F38CE0C500D12E1C935A521AA1E238B8BAD07110714C65FC"
+    },
+    {
+      "file": "04-打卡回顾.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 202988,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "4D70CD8BB43CFDA03D526819ED633664BF70508F9A9DCABD17D0A5CEC602D605"
+    },
+    {
+      "file": "05-分组与进度.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 435025,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "30A775CC7E85CE5C64A7125461CA16CE682957C0B15548978F62DCC3CBBE1C6C"
+    },
+    {
+      "file": "06-未来安排.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 457564,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "6988E6010E39571F696B8B861334E2BECBB22DA6AB9BBF3D4DA351169373A7C4"
+    },
+    {
+      "file": "07-个性设置.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 1049635,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "01294597312DB8CC9EA7142AC7D370DB70A5997E6AAD9CEC0B248F1F13FEB1E8"
+    },
+    {
+      "file": "08-深色主题.png",
+      "width": 2800,
+      "height": 1689,
+      "bytes": 1011182,
+      "cropBox": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "sha256": "86D0DCB0466222DFD0979AADC2EC6984ADFD8952B8F3934004C5FE5F891F42F4"
+    }
+  ]
+}

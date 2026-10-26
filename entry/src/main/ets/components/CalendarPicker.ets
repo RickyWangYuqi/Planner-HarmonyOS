@@ -7,6 +7,7 @@ import { IconButton } from './IconButton';
 export struct PlanerCalendar {
   @Prop @Watch('syncMonth') value: string = '';
   @Prop @Watch('minimumChanged') minDate: string = '';
+  @Prop compact: boolean = false;
   @Prop marks: string[] = [];
   @Prop palette: Palette = new Palette();
   onSelect: (key: string) => void = (_key: string): void => {};
@@ -55,6 +56,15 @@ export struct PlanerCalendar {
 
   private dateKey(index: number, calendarMonth: string): string {
     return `${calendarMonth}-${this.day(index, calendarMonth).toString().padStart(2, '0')}`;
+  }
+
+  private visibleRows(calendarMonth: string): number[] {
+    if (!this.compact) return this.rows;
+    const first = fromKey(calendarMonth + '-01');
+    const offset = (first.getDay() + 6) % 7;
+    const days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    // 宽表单省去全空的最后一周，日期触控仍保留44vp。
+    return this.rows.slice(0, Math.ceil((offset + days) / 7));
   }
 
   private disabled(index: number, calendarMonth: string): boolean {
@@ -106,7 +116,7 @@ export struct PlanerCalendar {
       // 月键同时固定离场网格的日期，动画期间也不会读到下一个月。
       ForEach([this.monthKey()], (calendarMonth: string) => {
         Column({ space: 2 }) {
-          ForEach(this.rows, (row: number) => {
+          ForEach(this.visibleRows(calendarMonth), (row: number) => {
             Row({ space: 2 }) {
               ForEach(this.columns, (column: number) => {
                 this.dateCell(row * 7 + column, calendarMonth)

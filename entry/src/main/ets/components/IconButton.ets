@@ -1,6 +1,7 @@
 import { Palette } from '../theme/Theme';
-import { Motion } from '../theme/Appearance';
+import { Motion, PlanerControlModifier } from '../theme/Appearance';
 import { PlanerIcon } from './PlanerIcon';
+import { MaterialButtonScope } from './MaterialButtonScope';
 
 @Component
 export struct IconButton {
@@ -8,6 +9,8 @@ export struct IconButton {
   @Prop palette: Palette = new Palette();
   @Prop label: string = '';
   @Prop buttonSize: number = 44;
+  @Prop iconSize: number = 21;
+  @Prop cornerRadius: number = 12;
   @Prop tone: string = 'normal';
   @State private pressed: boolean = false;
   onTap: () => void = (): void => {};
@@ -24,20 +27,34 @@ export struct IconButton {
     });
   }
 
-  build() {
-    Button({ type: ButtonType.Normal }) {
-      PlanerIcon({ icon: this.icon, color: this.iconColor(), iconSize: 21 })
+  @Builder
+  private buttonContent() {
+    Button({ type: ButtonType.Normal, stateEffect: false }) {
+      PlanerIcon({ icon: this.icon, color: this.iconColor(), iconSize: this.iconSize })
     }
-    .width(this.buttonSize).height(this.buttonSize).padding(0).borderRadius(12)
+    .width(this.buttonSize).height(this.buttonSize).padding(0).borderRadius(this.cornerRadius)
     // 紧凑分组标题只缩小可见按钮，响应区继续至少保持44vp。
     .responseRegion({ x: Math.min(0, (this.buttonSize - 44) / 2), y: Math.min(0, (this.buttonSize - 44) / 2),
       width: Math.max(44, this.buttonSize), height: Math.max(44, this.buttonSize) })
-    .backgroundColor(Color.Transparent).accessibilityText(this.label)
+    .attributeModifier(new PlanerControlModifier(this.palette, this.tone === 'accent', this.icon === 'trash',
+      this.icon === 'plus' || this.icon === 'close' || this.icon === 'trash')).accessibilityText(this.label)
     .scale({ x: this.pressed ? 0.90 : 1, y: this.pressed ? 0.90 : 1 })
     .onTouch((event: TouchEvent): void => {
       if (event.type === TouchType.Down) this.updatePressed(true);
       else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.updatePressed(false);
     })
-    .id('icon-' + this.icon + '-' + this.label).onClick((): void => this.onTap())
+    .id('icon-' + this.icon + '-' + this.label)
+    .onDisAppear((): void => { this.pressed = false; })
+    .onClick((): void => { this.pressed = false; this.onTap(); })
+  }
+
+  build() {
+    if (this.icon === 'plus' || this.icon === 'close' || this.icon === 'trash') {
+      MaterialButtonScope({ palette: this.palette, controlHeight: this.buttonSize, radius: this.cornerRadius, content: () => {
+        this.buttonContent()
+      } }).width(this.buttonSize).height(this.buttonSize)
+    } else {
+      this.buttonContent()
+    }
   }
 }

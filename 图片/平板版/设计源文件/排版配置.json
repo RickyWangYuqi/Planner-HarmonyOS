@@ -1,0 +1,160 @@
+{
+  "canvas": [
+    2880,
+    1920
+  ],
+  "overview": [
+    2880,
+    1920
+  ],
+  "device": "HUAWEI MatePad Pro",
+  "deviceScreen": [
+    2800,
+    1840
+  ],
+  "screenshotDate": "2026-10-23",
+  "captureType": "实机运行截图，裁去系统状态栏与手势区；不重绘UI",
+  "posters": [
+    {
+      "name": "01-双栏日程",
+      "source": "final-01-home.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "今天与未来，从容并行",
+      "subtitle": "左右分区，独立滚动，让每一项安排都清晰可见",
+      "tags": [
+        "双栏日程",
+        "分组整理",
+        "长按拖动"
+      ],
+      "sha256": "a47d09bdfc4952d6c785b602eb5f4b308518dde64f889ebe478374d954c69b94"
+    },
+    {
+      "name": "02-分组与进度",
+      "source": "final-02-progress.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "有条理，也有进展",
+      "subtitle": "内容、分组与完成进度，在舒展的面板里各归其位",
+      "tags": [
+        "分组标签",
+        "进度记录",
+        "随手调整"
+      ],
+      "sha256": "7d077ee86a9c07d4ab8e8ef2fcee8098ed031ed855673350a1b045effa31820e"
+    },
+    {
+      "name": "03-未来安排",
+      "source": "final-03-future.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "给未来，留一个位置",
+      "subtitle": "一边记录想法，一边安排日期，计划轻松成形",
+      "tags": [
+        "起始日期",
+        "截止日期",
+        "到期进入当日"
+      ],
+      "sha256": "3b204d95fd1f6d1c789b8c4e7173d38fe780389f4367ae815618e527c0f69098"
+    },
+    {
+      "name": "04-个性设置",
+      "source": "final-04-settings.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "把顺手的方式，留给自己",
+      "subtitle": "显示习惯与外观主题分栏呈现，常用设置轻松找到",
+      "tags": [
+        "四种配色",
+        "明暗切换",
+        "按习惯显示"
+      ],
+      "sha256": "3a194832de096133b47a3e6019750a48eb4ca8129892f686de00351c0728a092"
+    },
+    {
+      "name": "05-历史回顾",
+      "source": "final-05-history.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "每一份完成，都有回响",
+      "subtitle": "按日期回看已完成的日程，也能恢复继续安排",
+      "tags": [
+        "按日回顾",
+        "恢复日程",
+        "本机保存"
+      ],
+      "sha256": "f683d55652230a5bcd678ffe283946fbf6a8def765fe8f4d4b088ef4f3df20fd"
+    },
+    {
+      "name": "06-深色主题",
+      "source": "final-06-dark.png",
+      "crop": [
+        0,
+        88,
+        2800,
+        1777
+      ],
+      "rawSize": [
+        2800,
+        1689
+      ],
+      "title": "夜色里，依然清晰",
+      "subtitle": "柔和的深色与主题色，让计划保持自己的节奏",
+      "tags": [
+        "深色主题",
+        "跟随系统",
+        "主题配色"
+      ],
+      "sha256": "dc4115927ca668ca438974a50fded6ea087bdc7f9130a876ed2a214c35eb4351"
+    }
+  ],
+  "storeRequirements": {
+    "minSize": [
+      1920,
+      1280
+    ],
+    "aspectRatio": "3:2",
+    "format": "PNG",
+    "maxImageBytesExclusive": 5000000
+  }
+}

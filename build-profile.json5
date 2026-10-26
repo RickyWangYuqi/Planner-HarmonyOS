@@ -7,11 +7,11 @@
         "material": {
           "certpath": "C:/Users/35101/.ohos/config/default_PlanerHarmony_TddOtyl7n2TXmM48M-Zc5ovSlLAdPZQlKubuBI0LZMs=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001A6BD4E963529B20A3246EDE34C9F8C20A4CA6352F7B1921D4F75EE6A28EC8021322898FFB1668",
+          "keyPassword": "0000001A847C7A575EDCE618814178E2DD6B8C016521536B9E2B3CF30191FC83ABD5075042C6C009909E",
           "profile": "C:/Users/35101/.ohos/config/default_PlanerHarmony_TddOtyl7n2TXmM48M-Zc5ovSlLAdPZQlKubuBI0LZMs=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "C:/Users/35101/.ohos/config/default_PlanerHarmony_TddOtyl7n2TXmM48M-Zc5ovSlLAdPZQlKubuBI0LZMs=.p12",
-          "storePassword": "0000001A52D2C14C7138E6ABF887625CDB103BC7610617B78CBB6289486B68D2F595961EE067B5D3CBAB"
+          "storePassword": "0000001A29540C129576FAA8CDE473241E467A85F6703934D093A734ACF82D5299909DC2E7A8BD473EDB"
         }
       }
     ],

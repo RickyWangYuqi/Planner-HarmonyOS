@@ -1,0 +1,137 @@
+[
+  {
+    "file": "01-今天与未来.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "把今天与未来 / 分开放好",
+    "subtitle": "轻巧记录，从容安排每一天",
+    "screenshot": "01-首页浅色.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "02-周期打卡.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "每天一点点 / 让坚持有迹可循",
+    "subtitle": "多个计划，各按自己的节奏",
+    "screenshot": "02-周期打卡.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "03-自动接续.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "记住这次 / 接好下一次",
+    "subtitle": "编号自动递增，区间按周期接续",
+    "screenshot": "03-自动接续.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "04-打卡回顾.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "走过的每一天 / 都有迹可循",
+    "subtitle": "日历补卡、提前完成，随时回看进度",
+    "screenshot": "04-打卡日历.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "05-分组整理.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "分而有序 / 计划更清楚",
+    "subtitle": "工作、生活与成长，各有自己的位置",
+    "screenshot": "05-分组整理.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "06-记录进度.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "每一点进展 / 都值得看见",
+    "subtitle": "记录完成进度，轻勾收获踏实",
+    "screenshot": "06-编辑进度.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "07-明暗主题.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "选一种颜色 / 让计划更合心意",
+    "subtitle": "浅色与深色，自有舒服的节奏",
+    "screenshot": "07-首页深色.png",
+    "source": "本版本手机实拍；不重绘应用界面",
+    "phoneFrame": {
+      "width": 930,
+      "screenWidth": 902,
+      "screenHeight": 1857.3,
+      "screenshotTop": -88.833333
+    }
+  },
+  {
+    "file": "08-桌面组件.png",
+    "size": [
+      1440,
+      2560
+    ],
+    "headline": "重要的事 / 抬眼就看见",
+    "subtitle": "三种尺寸，重要计划随手可见",
+    "screenshots": [
+      "09-桌面组件小卡.png",
+      "10-桌面组件中卡.png",
+      "11-桌面组件大卡.png"
+    ],
+    "source": "复用2026-10-22三款透明组件实拍素材，组件界面未在本轮改动",
+    "scale": 0.7
+  }
+]

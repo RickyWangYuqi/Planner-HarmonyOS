@@ -485,5 +485,115 @@ console.log('23) 整组移动、日期工具与归一化容错');
   assert(normalized instanceof model.AppData && normalized.todayTasks[0] instanceof model.Task && normalized.settings instanceof model.Settings, '存储读取恢复强类型对象及clone方法');
 }
 
+console.log('24) 未来完成保留至截止日及开关迁移');
+{
+  let s = reducer(fresh(), { type: 'SET_SETTINGS', patch: { retainCompletedFutureUntilDue: true } });
+  s = reducer(s, { type: 'ADD_TASK', section: 'future', text: '保留完成项', dueDate: '2026-08-27', group: '工作' });
+  const id = s.futureTasks[0].id;
+  const original = JSON.stringify(s);
+  s = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  assert(s.futureTasks.length === 1 && s.futureTasks[0].completed, '开启后完成项保留在未来原位置');
+  assert(s.history.length === 0 && s.futureTasks[0].archivedAt === null, '未到截止日不提前归档');
+  assert(JSON.parse(original).futureTasks[0].completed === false, '完成操作不污染原状态');
+  s = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  assert(!s.futureTasks[0].completed && s.futureTasks[0].completedAt === null, '保留项可取消完成并清空完成时间');
+  s = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  const completedAt = s.futureTasks[0].completedAt;
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-27' });
+  assert(s.futureTasks.length === 1 && s.todayTasks.length === 0, '截止日当天仍保留完成项，不转入当日');
+  const cancelledAtDue = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  assert(cancelledAtDue.futureTasks.length === 0 && cancelledAtDue.todayTasks[0].id === id && !cancelledAtDue.todayTasks[0].completed, '截止日当天取消完成，按到期规则转入当日');
+  s = reducer(s, { type: 'EDIT_TASK', id, text: '保留完成项修改' });
+  assert(s.futureTasks[0].id === id && s.todayTasks.length === 0, '截止日当天编辑仍保留在未来');
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-28' });
+  assert(s.futureTasks.length === 0 && s.todayTasks.length === 0, '截止日结束后直接归档，不闪入当日');
+  assert(s.history[0].date === '2026-08-27' && s.history[0].tasks[0].plannedDate === '2026-08-27', '历史按截止日分组并记录原计划日');
+  assert(s.history[0].tasks[0].completedAt === completedAt && !!s.history[0].tasks[0].archivedAt, '保留实际完成时间并记录归档时间');
+  const again = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-30' });
+  assert(again.history[0].tasks.length === 1, '多次跨日不会重复归档');
+  s = reducer(s, { type: 'RESTORE', entryDate: '2026-08-27', id, target: 'future', dueDate: '2026-09-01' });
+  assert(s.futureTasks.length === 1 && !s.futureTasks[0].completed, '延迟归档项仍可从历史恢复到未来');
+  s = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  s = reducer(s, { type: 'SET_SETTINGS', patch: { retainCompletedFutureUntilDue: false } });
+  assert(s.futureTasks.length === 0 && s.history.some(entry => entry.tasks.some(task => task.id === id)), '关闭开关时已保留的完成项立即归档');
+}
+{
+  let s = reducer(fresh(), { type: 'SET_SETTINGS', patch: { retainCompletedFutureUntilDue: true } });
+  for (const text of ['已完成', '未完成']) s = reducer(s, { type: 'ADD_TASK', section: 'future', text, dueDate: '2026-08-27' });
+  const id = s.futureTasks[0].id;
+  s = reducer(s, { type: 'COMPLETE_FUTURE', id });
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-09-03' });
+  assert(s.todayTasks.length === 1 && s.todayTasks[0].text === '未完成' && s.futureTasks.length === 0, '多日未打开时已完成归档、未完成仍按原规则转入当日');
+  assert(s.history[0].date === '2026-08-27', '跨多日仍归入真实截止日');
+  const legacy = normalizeData(fresh());
+  assert(!legacy.settings.retainCompletedFutureUntilDue, '旧存储缺少字段时默认关闭');
+  legacy.settings.retainCompletedFutureUntilDue = true;
+  assert(normalizeData(JSON.parse(JSON.stringify(legacy))).settings.retainCompletedFutureUntilDue, '设置经过保存读取仍保留');
+}
+
+console.log('25) 未来预览与真实跨日分离、计划日及延期提示');
+{
+  let s = reducer(fresh(), { type: 'ADD_TASK', section: 'today', text: '今天完成' });
+  const id = s.todayTasks[0].id;
+  s = reducer(s, { type: 'TOGGLE_TODAY', id });
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-28' });
+  assert(s.history.length === 0 && s.todayTasks[0].completed, '选未来日期不提前归档已完成日程');
+  assert(s.lastRolloverDate === '2026-08-24', '浏览未来不推进真实跨日时钟');
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-24' });
+  assert(s.todayTasks[0].id === id && s.todayTasks[0].completed && s.history.length === 0, '回到今天仍保留原完成状态与位置');
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-25' });
+  assert(s.history[0].date === '2026-08-24' && s.todayTasks.length === 0, '真实今天结束后才归档一次');
+}
+{
+  let s = reducer(fresh(), { type: 'ADD_TASK', section: 'today', text: '未完成旧计划' });
+  const a = s.todayTasks[0].id;
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-25' });
+  assert(engine.taskDelayText(s.todayTasks[0], s.currentDate, s.lastRolloverDate) === '预计延期 1 天', '未来视图的顺延明确标为预计延期');
+  s = reducer(s, { type: 'ADD_TASK', section: 'today', text: '明天新增计划' });
+  const b = s.todayTasks.find(task => task.id !== a).id;
+  assert(s.todayTasks[1].scheduledDate === '2026-08-25' && engine.taskDelayText(s.todayTasks[1], s.currentDate, s.lastRolloverDate) === '', '未来所选日新增日程不被算作旧任务延期');
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-24' });
+  assert(s.todayTasks.length === 1 && s.todayTasks[0].id === a && s.futureTasks[0].id === b, '回今天时明天新建项正确回到未来，不提前混入今天');
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-28' });
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-25' });
+  assert(s.lastRolloverDate === '2026-08-25' && s.currentDate === '2026-08-28', '停在未来视图时真实午夜仍被处理且保留浏览日期');
+  assert(engine.taskDelayText(s.todayTasks.find(task => task.id === a), s.currentDate, s.lastRolloverDate) === '延期 1 天', '真实延期与预览预计延期分开显示');
+  s = reducer(s, { type: 'TOGGLE_TODAY', id: a });
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-26' });
+  assert(s.history[0].date === '2026-08-25' && s.history[0].tasks[0].id === a, '未来视图完成任务按真实完成日归档，不记到预览日');
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-27' });
+  assert(s.history[0].tasks.length === 1, '保持未来视图连续跨日不会重复归档');
+}
+{
+  let s = reducer(fresh(), { type: 'SET_SETTINGS', patch: { retainCompletedFutureUntilDue: true } });
+  s = reducer(s, { type: 'ADD_TASK', section: 'future', text: '月底前保留', dueDate: '2026-08-26' });
+  const id = s.futureTasks[0].id;
+  s = reducer(s, { type: 'SELECT_DATE', key: '2026-08-29' });
+  s = reducer(s, { type: 'TOGGLE_TODAY', id });
+  assert(s.futureTasks[0].completed && s.history.length === 0, '预览日期已超过截止日也不会提前归档保留模式完成项');
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-26' });
+  assert(s.futureTasks.length === 1 && s.history.length === 0, '真实截止日当天仍保留完成项');
+  s = reducer(s, { type: 'ROLLOVER_TO', key: '2026-08-27' });
+  assert(s.history[0].date === '2026-08-26' && s.futureTasks.length === 0, '真实截止日结束后才归档未来完成项');
+}
+{
+  let s = reducer(fresh(), { type: 'SELECT_DATE', key: '2026-08-25' });
+  s = reducer(s, { type: 'ADD_TASK', section: 'today', text: '提前完成明天计划' });
+  s = reducer(s, { type: 'TOGGLE_TODAY', id: s.todayTasks[0].id });
+  assert(s.history[0].date === '2026-08-24' && s.todayTasks.length === 0, '预览中提前完成未来计划仍遵循默认立即归档，记录真实日期');
+  const legacy = fresh(); legacy.currentDate = engine.addDays(engine.todayKey(), 3);
+  const task = new model.Task(); task.text = '旧日程'; legacy.todayTasks = [task];
+  const migrated = normalizeData(legacy);
+  assert(migrated.lastRolloverDate === engine.todayKey() && migrated.todayTasks[0].scheduledDate === engine.todayKey(), '旧数据选择未来日时安全迁移，不虚构早期延期天数');
+  const hidden = new model.Task(); hidden.id = 'hidden'; hidden.text = '带未来隐藏日期的当日任务'; hidden.dueDate = '2026-08-30';
+  const old = fresh(); old.todayTasks = [hidden];
+  const completed = reducer(old, { type: 'TOGGLE_TODAY', id: 'hidden' });
+  assert(completed.todayTasks[0].completed && completed.history.length === 0, '旧当日任务的未来隐藏截止日不会被误判为提前完成未来任务');
+  const overdue = new model.Task(); overdue.scheduledDate = '2028-02-28';
+  assert(engine.taskDelayText(overdue, '2028-03-01', '2028-03-01') === '延期 2 天', '延期按日历天计算，覆盖闰日');
+  overdue.completed = true;
+  assert(engine.taskDelayText(overdue, '2028-03-01', '2028-03-01') === '', '已完成任务不继续显示延期告警');
+}
+
 console.log(`\n结果: ${passed} 通过, ${failed} 失败`);
 if (failed > 0) process.exit(1);
