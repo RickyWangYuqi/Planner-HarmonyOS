@@ -78,11 +78,13 @@ function compileComponent(source, name, filename, appended = '', extraContext = 
     .replace(/@(?:Prop|State)\s+/g, '') + appended + '\n}\nglobalThis.ComponentClass = ' + name + ';';
   const context = vm.createContext({
     ...model, ...checkInModel, ...engine, ...checkInEngine, console,
+    display: { getDefaultDisplaySync: () => ({ supportedRefreshRates: [60, 120] }) },
     Palette: class {},
     Scroller: class { scrollBy() {} },
     Motion: { quick: () => ({}), spring: () => ({}) },
     Materials: { confirmation: (_palette, options) => options },
     EditorMaterialRefresh: { request: () => {} },
+    CheckInFocusFrame: class { constructor(callback) { this.callback=callback; } },
     curves: { springMotion: () => ({}) },
     setTimeout, clearTimeout, ...extraContext
   });
@@ -90,7 +92,7 @@ function compileComponent(source, name, filename, appended = '', extraContext = 
   return { ComponentClass: context.ComponentClass, watches };
 }
 const view = compileComponent(viewSource, 'CheckInView', viewPath, '\n' +
-  'getUIContext() { return { animateTo: (options, change) => { this.testAnimations = (this.testAnimations || 0) + 1; change(); if (options.onFinish) options.onFinish(); }, getPromptAction: () => ({ showToast: (options) => { (this.testToasts ||= []).push(options.message); }, showDialog: async () => { this.testDialogs = (this.testDialogs || 0) + 1; return { index: this.testDialogIndex ?? 1 }; } }) }; }\n' +
+  'getUIContext() { return { postFrameCallback: frame => frame.callback(), animateTo: (options, change) => { this.testAnimations = (this.testAnimations || 0) + 1; change(); if (options.onFinish) options.onFinish(); }, getPromptAction: () => ({ showToast: (options) => { (this.testToasts ||= []).push(options.message); }, showDialog: async () => { this.testDialogs = (this.testDialogs || 0) + 1; return { index: this.testDialogIndex ?? 1 }; } }) }; }\n' +
   'metricFromView(scope, field) { return ' + textExpression('metric') + '; }\n' +
   'totalFromView(scope) { return ' + textExpression('statsContent') + '; }\n' +
   'itemNameFromView(id) { return ' + textExpression('itemCard') + '; }\n' +
@@ -99,7 +101,7 @@ const view = compileComponent(viewSource, 'CheckInView', viewPath, '\n' +
   'subtitleFromView() { return ' + textExpression('modalHeader', 1) + '; }\n' +
   'recordStatusFromView(key) { return ' + requiredMatch(builderSource('recordRow'), /Text\((this\.recordLabel\(this\.timelineRecord\(key\)\))\)\.fontSize/, '周期状态文案') + '; }\n' +
   'recordContentFromView(key) { return ' + requiredMatch(builderSource('recordRow'), /Text\((this\.snapshotContentText\(key\))\)\.fontSize/, '周期内容文案') + '; }\n' +
-  'recordClickFromView(key) { ' + requiredMatch(builderSource('recordRow'), /\.onClick\(\(\) => \{ (.+) \}\)/, '历史行点击入口') + ' }\n' +
+  'historyToggleFromView(key) { ' + requiredMatch(builderSource('recordRow'), /buttonId: 'checkin-history-toggle-' \+ key, onToggle: \(\) => \{ ([^}]+) \}/, '历史时间线按钮点击入口') + ' }\n' +
   'futureToggleFromView(key) { ' + requiredMatch(builderSource('recordRow'), /buttonId: 'checkin-advance-' \+ key, onToggle: \(\) => \{ ([^}]+) \}/, '未来时间线按钮点击入口') + ' }\n' +
   'createButtonFromView() { return ' + requiredMatch(builderSource('fixedHeader'), /IconButton\((\{[^\n]+\})\)\.id\('checkin-create'\)/, '新增打卡按钮参数') + '; }\n' +
   'manageIconFromView(icon, id) { return ' + requiredMatch(builderSource('manageButtonContent'), /PlanerIcon\(\{ icon: (.+), iconSize: 18/, '管理按钮最内层图标绑定') + '; }\n' +
@@ -435,17 +437,34 @@ assert(chronology.selectedTimeline.map(record => record.key).join(',') === desce
 chronology.futureLimit = 60;
 assert(chronology.selectedFutureTimeline.length === 60 && JSON.stringify(chronology.data) === chronologyBefore, '扩展未来预览只刷新派生状态，不改变日程或持久数据');
 const noHistoryAnimation = chronology.testAnimations || 0;
-chronology.recordClickFromView('2026-10-27'); chronology.recordClickFromView('2026-10-26');
-chronology.openHistory('2026-10-23');
-assert(chronology.modal === 'detail' && (chronology.testAnimations || 0) === noHistoryAnimation, '未来、今天和计划开始前日期均不能进入历史页');
-chronology.recordClickFromView('2026-10-24');
-assert(chronology.modal === 'history' && chronology.recordKey === '2026-10-24' && chronology.sheetShown &&
-  chronology.titleFromView() === '历史计划', '过去有效周期通过真实行点击打开同一弹层历史页');
+chronology.historyToggleFromView('2026-10-27'); chronology.historyToggleFromView('2026-10-26');
+chronology.toggleHistory('2026-10-23');
+assert(chronology.modal === 'detail' && (chronology.testAnimations || 0) === noHistoryAnimation && !chronology.timelineDraftKey,
+  '历史按钮拒绝未来、今天和计划开始前日期，保持时间线原位');
+chronology.historyToggleFromView('2026-10-24');
+assert(chronology.modal === 'detail' && chronology.timelineDraftKey === '2026-10-24' && chronology.sheetShown &&
+  chronology.timelineDraftName === '' && JSON.stringify(chronology.data) === chronologyBefore,
+  '历史无快照时只在原行展开空白名称输入，不另开页面或套用今天编号');
+chronology.historyToggleFromView('2026-10-24');
+assert(!chronology.data.checkInRecords.some(record => record.key === '2026-10-24'), '历史实际内容尚未填写时不伪造补卡');
+chronology.timelineDraftName='背单词269-278';chronology.historyToggleFromView('2026-10-24');
+assert(chronology.timelineRecord('2026-10-24').status === 'completed' && chronology.timelineRecord('2026-10-24').backfilled &&
+  chronology.timelineRecord('2026-10-24').name === '背单词269-278' && !chronology.timelineDraftKey,
+  '同一历史行填写真实内容后补卡，并立即显示自己的已补卡快照');
+assert(chronology.modal==='detail' && chronology.sheetShown && (chronology.testAnimations||0)===noHistoryAnimation,
+  '历史补卡仅更新原按钮和记录，不关闭弹层或触发整页动画');
+chronology.historyToggleFromView('2026-10-24');
+assert(chronology.timelineRecord('2026-10-24').status==='ready' && chronology.timelineRecord('2026-10-24').name==='背单词269-278',
+  '同一历史按钮第二次点击直接撤销，保留历史内容快照');
+chronology.historyToggleFromView('2026-10-24');
+assert(chronology.timelineRecord('2026-10-24').status==='completed' && !chronology.timelineDraftKey,
+  '已有快照的历史周期再补卡直接完成，不要求重复填写内容');
+assert(chronology.selected().name==='背单词289-298' && chronology.data.futureTasks.length===0,
+  '历史补卡撤销往返不改变当前编号或创建未来日程');
 const weeklyHistory = newView();
 update(weeklyHistory, 'CHECKIN_SAVE', { checkIn: newItem({ frequency: 'weekly', weekdays: [1, 3], startDate: '2026-10-01' }) });
-weeklyHistory.openDetail(weeklyHistory.itemById('reading')); weeklyHistory.openHistory('2026-10-25');
-assert(weeklyHistory.modal === 'detail' && !weeklyHistory.recordKey, '过去非频率周期也不能打开历史项');
-chronology.backToDetail();
+weeklyHistory.openDetail(weeklyHistory.itemById('reading')); weeklyHistory.toggleHistory('2026-10-25');
+assert(weeklyHistory.modal === 'detail' && !weeklyHistory.timelineDraftKey, '过去非频率周期不触发补卡输入或改变页面');
 const advanceAnimations = chronology.testAnimations || 0; const advanceSheetEvents = chronologyEvents.length;
 const currentNameBeforeAdvance = chronology.selected().name;
 const tasksBeforeAdvance = JSON.stringify([chronology.data.todayTasks, chronology.data.futureTasks, chronology.data.history]);
@@ -467,7 +486,7 @@ assert(!chronology.actionError && undoneFuture.status === 'ready' && !undoneFutu
 assert(undoneFuture.name === '背单词309-318' && chronology.data.checkInRecords.filter(record =>
   record.itemId === 'reading' && record.key === '2026-10-28').length === 1, '撤销保留同一期名称快照且没有重复周期');
 assert(JSON.stringify([chronology.data.todayTasks, chronology.data.futureTasks, chronology.data.history]) === tasksBeforeAdvance &&
-  chronology.selected().name === currentNameBeforeAdvance && chronology.metricFromView('selected', 'completed') === '0',
+  chronology.selected().name === currentNameBeforeAdvance && chronology.metricFromView('selected', 'completed') === '1',
   '未来撤销不生成或移动日程，不改变当前名称和截至今天的统计');
 assert(chronology.modal === 'detail' && chronology.sheetShown && chronologyEvents.length === advanceSheetEvents &&
   (chronology.testAnimations || 0) === advanceAnimations, '未来撤销留在原时间线，不触发弹层或页面进退');

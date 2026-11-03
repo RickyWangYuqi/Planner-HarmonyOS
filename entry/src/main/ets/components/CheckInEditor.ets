@@ -1,6 +1,6 @@
 import { AppData } from '../model/PlanerModel';
 import { CheckInItem, CheckInFrequency, CheckInNamePattern } from '../model/CheckInModel';
-import { validateCheckIn, parseCheckInName, formatCheckInName, nextCheckInName } from '../model/CheckInEngine';
+import { validateCheckIn, parseCheckInName, formatCheckInName, nextCheckInName, checkInEditableRecord } from '../model/CheckInEngine';
 import { todayKey } from '../model/PlanerEngine';
 import { Palette } from '../theme/Theme';
 import { Materials, Motion, PlanerControlModifier, ButtonFeedback } from '../theme/Appearance';
@@ -14,26 +14,31 @@ import { HistoryBackButton } from './HistoryBackButton';
 @Component
 export struct CheckInEditor {
   @Prop item: CheckInItem = new CheckInItem();
-  @Prop data: AppData = new AppData();
+  @Prop @Watch('progressTargetChanged') data: AppData = new AppData();
   @Prop palette: Palette = new Palette();
   @Prop isSubpage: boolean = false;
   onBack: () => void = (): void => {};
-  onSave: (item: CheckInItem) => string = (): string => '';
+  onSave: (item: CheckInItem, progress?: number | null) => string = (): string => '';
   onClose: () => void = (): void => {};
   scroller: Scroller = new Scroller();
   onInputFocus: (id: string) => void = (): void => {};
   onInputBlur: (id: string) => void = (): void => {};
   onViewportChange: () => void = (): void => {};
   @State private name: string = '';
+  @State private progressEnabled: boolean = false;
+  @State private progressValue: number = 0;
+  @State private progressDate: string = '';
+  private progressDirty: boolean = false;
+  private readonly progressStops: number[] = [0, 25, 50, 75, 100];
   @State private selectedGroup: string = '';
   @State private groupTouched: boolean = false;
   @State private draftGroups: string[] = [];
   @State private creatingGroup: boolean = false;
   @State private groupName: string = '';
-  @State private startDate: string = '';
-  @State private frequency: CheckInFrequency = 'daily';
-  @State private weekdays: number[] = [];
-  @State private monthDays: number[] = [];
+  @State @Watch('progressTargetChanged') private startDate: string = '';
+  @State @Watch('progressTargetChanged') private frequency: CheckInFrequency = 'daily';
+  @State @Watch('progressTargetChanged') private weekdays: number[] = [];
+  @State @Watch('progressTargetChanged') private monthDays: number[] = [];
   @State private autoIncrement: boolean = false;
   @State private step: string = '1';
   @State private error: string = '';
@@ -45,6 +50,10 @@ export struct CheckInEditor {
 
   aboutToAppear(): void {
     this.name = this.item.name;
+    const record = checkInEditableRecord(this.data, this.item);
+    this.progressEnabled = !!record && (record.progress !== null || record.status === 'completed');
+    this.progressValue = record ? (record.progress !== null ? record.progress : (record.status === 'completed' ? 100 : 0)) : 0;
+    this.progressDirty = false;
     this.selectedGroup = this.item.group || '';
     this.groupTouched = false; this.draftGroups = []; this.creatingGroup = false; this.groupName = '';
     this.startDate = this.item.startDate || todayKey();
@@ -53,6 +62,7 @@ export struct CheckInEditor {
     this.autoIncrement = this.item.id ? this.item.autoIncrement : false;
     const pattern = parseCheckInName(this.name);
     this.step = this.item.id ? this.item.step.toString() : (pattern.valid ? pattern.step.toString() : '1');
+    this.progressTargetChanged();
   }
 
   aboutToDisappear(): void { this.pressedButton = ''; this.onInputBlur('checkin-group-name'); }
@@ -86,6 +96,25 @@ export struct CheckInEditor {
     return result;
   }
 
+  private progressTargetChanged(): void {
+    const record = checkInEditableRecord(this.data, this.candidate());
+    this.progressDate = this.item.id && record ? record.key : '';
+    // 未手改的数值跟随有效周期与外部写回，不能把昨日百分比显示为新首期进度。
+    if (this.progressDirty) return;
+    this.progressEnabled = !!record && (record.progress !== null || record.status === 'completed');
+    this.progressValue = record ? (record.progress !== null ? record.progress : (record.status === 'completed' ? 100 : 0)) : 0;
+  }
+
+  private changeProgressEnabled(enabled: boolean): void {
+    if (this.progressEnabled === enabled) return;
+    this.animateLayout(() => { this.progressEnabled = enabled; this.progressDirty = true; });
+  }
+
+  private changeProgress(value: number): void {
+    this.progressValue = Math.max(0, Math.min(100, Math.round(value)));
+    this.progressDirty = true;
+  }
+
   private numberValue(value: string): number { return value.trim().length === 0 ? Number.NaN : Number(value); }
 
   private changeName(value: string): void {
@@ -115,8 +144,9 @@ export struct CheckInEditor {
     const candidate = this.candidate();
     this.error = validateCheckIn(candidate);
     if (this.error) return;
+    if (this.progressDirty && !checkInEditableRecord(this.data, candidate)) { this.error = '当前计划暂无可编辑进度的周期'; return; }
     if (!candidate.id) candidate.id = 'checkin-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-    this.error = this.onSave(candidate);
+    this.error = this.onSave(candidate, this.progressDirty ? (this.progressEnabled ? this.progressValue : null) : undefined);
   }
 
   private toggleWeek(day: number): void {
@@ -238,6 +268,45 @@ export struct CheckInEditor {
         .lineHeight(19).width('100%').constraintSize({ minHeight: 36 })
         .onClick(() => { if (!this.autoIncrement) this.enableAutoIncrement(); })
     }.width('100%').padding(14)
+  }
+
+  @Builder private progressStopButton(value: number) {
+    Button(`${value}%`, { type: ButtonType.Normal, stateEffect: false }).id('checkin-progress-' + value.toString())
+      .width('100%').height(44).padding(0).fontSize(12).borderRadius(12)
+      .fontColor(this.progressValue === value ? this.palette.accent : this.palette.textSoft)
+      .attributeModifier(new PlanerControlModifier(this.palette, this.progressValue === value))
+      .scale({ x: ButtonFeedback.scale(this.pressedButton, 'progress:' + value), y: ButtonFeedback.scale(this.pressedButton, 'progress:' + value) })
+      .onTouch((event: TouchEvent) => this.groupTouch('progress:' + value, event))
+      .onDisAppear(() => { if (this.pressedButton === 'progress:' + value) this.pressedButton = ''; })
+      .onClick(() => {
+        this.pressedButton = '';
+        this.getUIContext().animateTo(Motion.quick(), () => this.changeProgress(value));
+      })
+  }
+
+  @Builder private progressSectionBody() {
+    Column({ space: 10 }) {
+      Row() {
+        Text('本期进度').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.text)
+        Text(this.progressEnabled ? `${this.progressValue}%` : '未设置').id('checkin-progress-value').fontSize(13)
+          .fontColor(this.progressEnabled ? this.palette.accent : this.palette.textFaint).margin({ left: 8 }).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.progressEnabled }).id('checkin-progress-enable').selectedColor(this.palette.accent)
+          .accessibilityText('设置本期完成进度').onChange((enabled: boolean) => this.changeProgressEnabled(enabled))
+      }.width('100%')
+      Text(this.progressDate).fontSize(12).fontColor(this.palette.textSoft).width('100%')
+      if (this.progressEnabled) {
+        Column({ space: 8 }) {
+          Slider({ value: this.progressValue, min: 0, max: 100, step: 5, style: SliderStyle.OutSet })
+            .width('100%').selectedColor(this.palette.accent).id('checkin-progress-slider')
+            .onChange((value: number) => this.changeProgress(value))
+          Row({ space: 5 }) {
+            ForEach(this.progressStops, (value: number) => {
+              MaterialButtonScope({ palette: this.palette, content: () => { this.progressStopButton(value); } }).layoutWeight(1).height(44)
+            }, (value: number): string => value.toString())
+          }.width('100%')
+        }.width('100%').transition(Motion.reveal())
+      }
+    }.id('checkin-progress').width('100%').padding(14).clip(false)
   }
 
   @Builder private dateSectionBody() {
@@ -438,6 +507,9 @@ export struct CheckInEditor {
       Scroll(this.scroller) {
         Column({ space: 18 }) {
           MaterialSection({ palette: this.palette, viewportId: 'checkin-editor-scroll', content: () => { this.nameSectionBody(); } }).width('100%')
+          if (this.item.id && this.progressDate) {
+            MaterialSection({ palette: this.palette, viewportId: 'checkin-editor-scroll', content: () => { this.progressSectionBody(); } }).width('100%')
+          }
           MaterialSection({ palette: this.palette, viewportId: 'checkin-editor-scroll', content: () => { this.dateSectionBody(); } }).width('100%')
           MaterialSection({ palette: this.palette, viewportId: 'checkin-editor-scroll', content: () => { this.frequencySectionBody(); } }).width('100%')
           if (this.data.settings.showGroups) {

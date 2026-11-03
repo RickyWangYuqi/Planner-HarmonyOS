@@ -1,4 +1,4 @@
-import { window, FrameCallback } from '@kit.ArkUI';
+import { window, display, FrameCallback } from '@kit.ArkUI';
 import { HdsNavigation, HdsNavigationTitleMode, HdsNavigationTitleBarStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { AppAction, AppData } from '../model/PlanerModel';
 import { CheckInItem, CheckInRecord, CheckInStats } from '../model/CheckInModel';
@@ -13,7 +13,6 @@ import { MaterialSection, EditorMaterialRefresh } from './MaterialSection';
 import { CheckInToggleButton } from './CheckInToggleButton';
 import { CheckInEditor } from './CheckInEditor';
 import { CheckInBackfill } from './CheckInBackfill';
-import { CheckInHistoryRecord } from './CheckInHistoryRecord';
 import { CheckInFilter } from './CheckInFilter';
 import { HistoryBackButton } from './HistoryBackButton';
 import { IconButton } from './IconButton';
@@ -41,6 +40,13 @@ export struct CheckInView {
   onSheetChange: (shown: boolean) => void = (): void => {};
   @State @Watch('sheetChanged') private sheetShown: boolean = false;
   @State private modal: string = 'detail';
+  @State private modalProgress: number = 0;
+  @State private modalTravel: number = 360;
+  @State private navigationMoving: boolean = false;
+  @State private timelineDraftKey: string = '';
+  @State private timelineDraftName: string = '';
+  private modalWidth: number = 0;
+  private navigationVersion: number = 0;
   @State @Watch('refreshSelectedDerived') private selectedId: string = '';
   @State private editorItem: CheckInItem = new CheckInItem();
   @State private recordKey: string = '';
@@ -65,7 +71,6 @@ export struct CheckInView {
   private sheetAreaKnown: boolean = false;
   private detailScroller: Scroller = new Scroller();
   private timelineScroller: Scroller = new Scroller();
-  private historyRecordScroller: Scroller = new Scroller();
   private editorScroller: Scroller = new Scroller();
   private backfillScroller: Scroller = new Scroller();
   private rangeScroller: Scroller = new Scroller();
@@ -81,8 +86,12 @@ export struct CheckInView {
   };
 
   aboutToAppear(): void { this.dataChanged(); if (this.requestedItemId) this.openRequestedItem(); }
-  aboutToDisappear(): void { this.stopKeyboardObserver(); this.onSheetChange(false); }
-  private sheetChanged(): void { this.pressedButton = ''; this.onSheetChange(this.sheetShown); }
+  aboutToDisappear(): void { this.cancelNavigation(); this.stopKeyboardObserver(); this.onSheetChange(false); }
+  private sheetChanged(): void {
+    this.pressedButton = '';
+    if (!this.sheetShown) this.cancelNavigation();
+    this.onSheetChange(this.sheetShown);
+  }
   private today(): string { return realDateOf(this.data); }
 
   private dataChanged(): void {
@@ -134,7 +143,6 @@ export struct CheckInView {
   private modalTitle(): string {
     if (this.modal === 'range') return '确认本期内容';
     if (this.modal === 'backfill') return '补卡';
-    if (this.modal === 'history') return '历史计划';
     return this.selected().name;
   }
 
@@ -280,16 +288,37 @@ export struct CheckInView {
     if (!this.sheetActive || !this.focusedInput) return;
     const uiContext = this.getUIContext();
     const input = uiContext.getFrameNodeById(this.focusedInput);
-    const viewportId = this.modal === 'editor' ? 'checkin-editor-scroll' :
-      (this.modal === 'backfill' ? 'checkin-backfill-scroll' : (this.modal === 'history' ? 'checkin-history-scroll' : 'checkin-range-scroll'));
+    const viewportId = this.focusedInput === 'checkin-timeline-name' ? 'checkin-timeline-list' :
+      (this.modal === 'editor' ? 'checkin-editor-scroll' :
+        (this.modal === 'backfill' ? 'checkin-backfill-scroll' : 'checkin-range-scroll'));
     const viewport = uiContext.getFrameNodeById(viewportId);
     if (!input || !viewport || !input.isAttached() || !viewport.isAttached()) return;
     const inputTop = input.getPositionToWindowWithTransform().y;
-    const inputHeight = uiContext.px2vp(input.getMeasuredSize().height);
+    const timelineInput = this.focusedInput === 'checkin-timeline-name';
+    // 行内补卡还需要让输入框下方的提交按钮可达。
+    const inputHeight = uiContext.px2vp(input.getMeasuredSize().height) + (timelineInput ? 54 : 0);
     const viewportHeight = uiContext.px2vp(viewport.getMeasuredSize().height);
     if (inputHeight <= 0 || viewportHeight <= 16) return;
-    const visibleTop = viewport.getPositionToWindowWithTransform().y + 8;
-    const visibleBottom = visibleTop + viewportHeight - 16;
+    let visibleTop = viewport.getPositionToWindowWithTransform().y + 8;
+    let visibleBottom = visibleTop + viewportHeight - 16;
+    if (timelineInput) {
+      const outer = uiContext.getFrameNodeById('checkin-detail-scroll');
+      if (outer && outer.isAttached()) {
+        const outerTop = outer.getPositionToWindowWithTransform().y + 8;
+        const outerBottom = outerTop + uiContext.px2vp(outer.getMeasuredSize().height) - 16;
+        // 先把嵌套时间线移入外层可见区，再按两个视口的交集滚动行内输入。
+        if (visibleTop > outerTop + 0.5) {
+          const previousOffset = this.detailScroller.currentOffset().yOffset;
+          this.detailScroller.scrollBy(0, visibleTop - outerTop);
+          if (Math.abs(this.detailScroller.currentOffset().yOffset - previousOffset) > 0.5) {
+            this.scheduleFocusedInputScroll();
+            return;
+          }
+        }
+        visibleTop = Math.max(visibleTop, outerTop);
+        visibleBottom = Math.min(visibleBottom, outerBottom);
+      }
+    }
     let distance = 0;
     if (inputHeight > visibleBottom - visibleTop) distance = inputTop - visibleTop;
     else if (inputTop + inputHeight > visibleBottom) distance = inputTop + inputHeight - visibleBottom;
@@ -298,9 +327,9 @@ export struct CheckInView {
   }
 
   private activeScroller(): Scroller {
+    if (this.focusedInput === 'checkin-timeline-name') return this.timelineScroller;
     if (this.modal === 'editor') return this.editorScroller;
     if (this.modal === 'backfill') return this.backfillScroller;
-    if (this.modal === 'history') return this.historyRecordScroller;
     return this.modal === 'range' ? this.rangeScroller : this.detailScroller;
   }
 
@@ -330,9 +359,63 @@ export struct CheckInView {
       TransitionEffect.translate({ x: this.listDirection > 0 ? -travel : travel })).animation(Motion.spring());
   }
 
+  private cancelNavigation(): void {
+    this.navigationVersion++;
+    this.navigationMoving = false;
+  }
+
+  private navigationFrameRateRange(): ExpectedFrameRateRange {
+    let maximum = 0;
+    try {
+      // 当前 refreshRate 可能正处于静止页面的低刷档，不能拿它限制转场帧率。
+      const rates = display.getDefaultDisplaySync().supportedRefreshRates || [];
+      rates.forEach((rate: number): void => {
+        if (Number.isInteger(rate) && rate > maximum) maximum = rate;
+      });
+    } catch (_) {}
+    // 未提供能力列表时请求 120；系统按设备上限和调度策略修正，不修改全局帧率。
+    if (maximum <= 0) maximum = 120;
+    return { min: 0, max: maximum, expected: maximum };
+  }
+
+  private animateModal(progress: number, revision: number): void {
+    if (!this.sheetShown || revision !== this.navigationVersion) return;
+    const animation = Motion.spring();
+    animation.expectedFrameRateRange = this.navigationFrameRateRange();
+    animation.onFinish = (): void => {
+      if (!this.sheetShown || revision !== this.navigationVersion) return;
+      this.navigationMoving = false;
+      // 退场完成后再卸载子页，详情及其时间线始终保留原滚动位置。
+      if (progress === 0) this.modal = 'detail';
+      EditorMaterialRefresh.request(this.getUIContext());
+    };
+    // 只提交合成层位移和透明度，不在动画事务中创建表单或初始化材质高度。
+    this.getUIContext().animateTo(animation, (): void => { this.modalProgress = progress; });
+  }
+
   private showModal(next: string): void {
+    if (next === this.modal && !this.navigationMoving) return;
     this.focusedInput = ''; this.cancelFocusedInputScroll(); this.pressedButton = ''; this.actionError = '';
-    this.getUIContext().animateTo(Motion.spring(), () => { this.modal = next; });
+    const revision = ++this.navigationVersion;
+    this.navigationMoving = true;
+    if (next === 'detail') {
+      // 仍在离屏预布局时没有可播放的退场位移，直接清理，不能依赖空动画的回调。
+      if (this.modalProgress === 0) {
+        this.modal = 'detail'; this.navigationMoving = false;
+      } else this.animateModal(0, revision);
+      return;
+    }
+    this.modalTravel = Math.max(this.modalWidth || this.windowWidth, 360);
+    this.modalProgress = 0;
+    this.modal = next;
+    // 第一帧提交表单布局，第二帧提交 MaterialSection 的首次高度回填。
+    // 空闲回调只用于启动一次原生属性动画，不逐帧用 JS 驱动位移。
+    this.getUIContext().postFrameCallback(new CheckInFocusFrame((): void => {
+      if (!this.sheetShown || revision !== this.navigationVersion) return;
+      this.getUIContext().postFrameCallback(new CheckInFocusFrame((): void => {
+        this.animateModal(1, revision);
+      }));
+    }));
   }
 
   private openRequestedItem(): void {
@@ -380,9 +463,11 @@ export struct CheckInView {
   }
 
   private openDetail(item: CheckInItem): void {
+    this.cancelNavigation(); this.modalProgress = 0; this.timelineDraftKey = ''; this.timelineDraftName = '';
     this.selectedId = item.id; this.modal = 'detail'; this.actionError = ''; this.timelineLimit = 60; this.futureLimit = 30; this.sheetShown = true;
   }
   private openNew(): void {
+    this.cancelNavigation(); this.modalProgress = 1; this.timelineDraftKey = ''; this.timelineDraftName = '';
     this.editorItem = new CheckInItem(); this.selectedId = ''; this.modal = 'editor'; this.actionError = ''; this.sheetShown = true;
   }
   private editSelected(): void { this.editorItem = this.selected().clone(); this.showModal('editor'); }
@@ -406,8 +491,8 @@ export struct CheckInView {
     this.onAction(action); this.toast(message); return '';
   }
 
-  private saveItem(item: CheckInItem): string {
-    const action = new AppAction('CHECKIN_SAVE'); action.checkIn = item;
+  private saveItem(item: CheckInItem, progress?: number | null): string {
+    const action = new AppAction('CHECKIN_SAVE'); action.checkIn = item; action.progress = progress;
     const error = this.dispatch(action, this.editorItem.id ? '已更新打卡计划' : '已创建打卡计划');
     if (!error) { if (this.editorItem.id) this.backToDetail(); else this.closeSheet(); }
     return error;
@@ -472,14 +557,26 @@ export struct CheckInView {
     else this.advance(key);
   }
 
-  private openHistory(key: string): void {
+  private toggleHistory(key: string): void {
+    this.pressedButton = '';
     if (key >= this.today() || !previewCheckInRecord(this.data, this.selectedId, key)) return;
-    this.recordKey = key; this.showModal('history');
-  }
-
-  private undoHistory(): string {
-    const action = new AppAction('CHECKIN_UNDO'); action.id = this.selectedId; action.key = this.recordKey;
-    return this.dispatch(action, '已撤销本次打卡');
+    const record = this.recordFor(this.selectedId, key);
+    if (record?.status === 'completed') {
+      this.undo(this.selectedId, key);
+      return;
+    }
+    if (!record?.name && this.timelineDraftKey !== key) {
+      // 旧记录没有内容快照时不能拿今天的编号补写历史；在原卡片填写实际内容。
+      this.timelineDraftKey = key; this.timelineDraftName = '';
+      this.toast('请在该日期下填写实际打卡内容，再点击补卡');
+      return;
+    }
+    const name = record?.name || this.timelineDraftName.trim();
+    if (!name) { this.toast('请填写这一天的实际打卡内容'); return; }
+    if (!this.backfill(key, name)) {
+      this.timelineDraftKey = ''; this.timelineDraftName = '';
+      this.blurInput('checkin-timeline-name');
+    }
   }
 
   private orderedTimeline(): CheckInRecord[] {
@@ -721,29 +818,34 @@ export struct CheckInView {
       Row({ space: 8 }) {
         Text(this.timelineRecord(key).key).fontSize(14).fontWeight(FontWeight.Medium).fontColor(this.palette.text).layoutWeight(1)
         Text(this.recordLabel(this.timelineRecord(key))).fontSize(12).fontColor(this.timelineRecord(key).status === 'completed' ? this.palette.success : this.palette.textSoft)
-        if (key < this.today()) PlanerIcon({ icon: 'right', iconSize: 15, color: this.palette.textSoft })
       }.width('100%')
       Text(this.snapshotContentText(key)).fontSize(16).fontColor(this.palette.text).width('100%').lineHeight(23)
       if (this.timelineRecord(key).completedAt) Text('完成于 ' + this.completedTime(this.timelineRecord(key))).fontSize(12).fontColor(this.palette.textSoft).width('100%')
-      if (key >= this.today()) {
-        Row() {
-          Blank().layoutWeight(1)
-          if (key > this.today()) {
-            if (this.timelineRecord(key).name) {
-              CheckInToggleButton({ palette: this.palette, future: true, completed: this.timelineRecord(key).status === 'completed',
-                buttonId: 'checkin-advance-' + key, onToggle: () => { this.toggleFuture(key); } })
-            }
-          } else if (this.timelineRecord(key).status === 'pending') {
-            this.smallButton('调整本期内容', 'checkin-range-' + key, () => this.openRange(this.timelineRecord(key)))
-          } else {
-            CheckInToggleButton({ palette: this.palette, completed: this.timelineRecord(key).status === 'completed',
-              buttonId: 'checkin-record-toggle-' + key, onToggle: () => this.toggleToday(this.selectedId) })
-          }
-        }.width('100%')
+      if (this.timelineDraftKey === key && !this.timelineRecord(key).name) {
+        TextInput({ text: this.timelineDraftName, placeholder: '填写这一天的实际打卡内容' })
+          .id('checkin-timeline-name').width('100%').height(48).maxLength(120).fontSize(15)
+          .fontColor(this.palette.text).backgroundColor(Materials.input(this.palette)).borderRadius(12)
+          .onChange((value: string): void => { this.timelineDraftName = value; })
+          .onFocus(() => this.focusInput('checkin-timeline-name')).onBlur(() => this.blurInput('checkin-timeline-name'))
       }
-    }.id('checkin-record-' + key).width('100%').padding(16)
-      .onClick(() => { if (key < this.today()) this.openHistory(key); })
-      .accessibilityText(key < this.today() ? key + '，' + this.snapshotContentText(key) + '，查看历史计划' : key)
+      Row() {
+        Blank().layoutWeight(1)
+        if (key < this.today()) {
+          CheckInToggleButton({ palette: this.palette, historical: true, completed: this.timelineRecord(key).status === 'completed',
+            buttonId: 'checkin-history-toggle-' + key, onToggle: () => { this.toggleHistory(key); } })
+        } else if (key > this.today()) {
+          if (this.timelineRecord(key).name) {
+            CheckInToggleButton({ palette: this.palette, future: true, completed: this.timelineRecord(key).status === 'completed',
+              buttonId: 'checkin-advance-' + key, onToggle: () => { this.toggleFuture(key); } })
+          }
+        } else if (this.timelineRecord(key).status === 'pending') {
+          this.smallButton('调整本期内容', 'checkin-range-' + key, () => this.openRange(this.timelineRecord(key)))
+        } else {
+          CheckInToggleButton({ palette: this.palette, completed: this.timelineRecord(key).status === 'completed',
+            buttonId: 'checkin-record-toggle-' + key, onToggle: () => this.toggleToday(this.selectedId) })
+        }
+      }.width('100%')
+    }.id('checkin-record-' + key).width('100%').padding(16).accessibilityText(key)
   }
 
   @Builder private timelineList() {
@@ -882,45 +984,48 @@ export struct CheckInView {
     }.width('100%').height('100%')
   }
 
+  @Builder private subpageBody() {
+    if (this.modal === 'editor') {
+      CheckInEditor({ item: this.editorItem, data: this.data, palette: this.palette, scroller: this.editorScroller,
+        isSubpage: !!this.selectedId, onBack: () => this.backToDetail(),
+        onInputFocus: (id: string): void => this.focusInput(id), onInputBlur: (id: string): void => this.blurInput(id),
+        onViewportChange: (): void => this.scheduleFocusedInputScroll(),
+        onSave: (item: CheckInItem, progress?: number | null): string => this.saveItem(item, progress), onClose: () => this.closeSheet() })
+    } else if (this.modal === 'backfill') {
+      CheckInBackfill({ data: this.data, itemId: this.selectedId, palette: this.palette, initialDate: this.recordKey,
+        scroller: this.backfillScroller, onBack: () => this.backToDetail(),
+        onComplete: (key: string, name: string): string => this.backfill(key, name),
+        onAdvance: (key: string): string => this.advance(key),
+        onInputFocus: (id: string): void => this.focusInput(id), onInputBlur: (id: string): void => this.blurInput(id),
+        onViewportChange: (): void => this.scheduleFocusedInputScroll() })
+    } else if (this.modal === 'range') {
+      this.rangeBody()
+    }
+  }
+
+  // 页内含实时背景采样材质，不能在进退场时切成整页离屏缓存再切回。
+  // 否则旧页按钮会先丢背板，新页材质会等缓存解除才出现。
   @Builder private modalBody() {
     Stack({ alignContent: Alignment.TopStart }) {
       if (this.selectedId) {
         Column() { this.detailBody() }.width('100%').height('100%')
-          .translate({ x: this.modal === 'detail' ? '0%' : '-20%' }).opacity(this.modal === 'detail' ? 1 : 0)
-          .hitTestBehavior(this.modal === 'detail' ? HitTestMode.Default : HitTestMode.None)
-          .accessibilityLevel(this.modal === 'detail' ? 'auto' : 'no-hide-descendants')
+          .translate({ x: -0.2 * this.modalProgress * this.modalTravel }).opacity(1 - this.modalProgress)
+          .renderGroup(false)
+          .hitTestBehavior(this.modal === 'detail' && !this.navigationMoving ? HitTestMode.Default : HitTestMode.None)
+          .accessibilityLevel(this.modal === 'detail' && !this.navigationMoving ? 'auto' : 'no-hide-descendants')
       }
-      if (this.modal === 'editor') {
-        Column() {
-          CheckInEditor({ item: this.editorItem, data: this.data, palette: this.palette, scroller: this.editorScroller,
-            isSubpage: !!this.selectedId, onBack: () => this.backToDetail(),
-            onInputFocus: (id: string): void => this.focusInput(id), onInputBlur: (id: string): void => this.blurInput(id),
-            onViewportChange: (): void => this.scheduleFocusedInputScroll(),
-            onSave: (item: CheckInItem): string => this.saveItem(item), onClose: () => this.closeSheet() })
-        }.width('100%').height('100%').transition(this.selectedId ? TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()) : TransitionEffect.IDENTITY)
-      } else if (this.modal === 'backfill') {
-        Column() {
-          CheckInBackfill({ data: this.data, itemId: this.selectedId, palette: this.palette, initialDate: this.recordKey,
-            scroller: this.backfillScroller, onBack: () => this.backToDetail(),
-            onComplete: (key: string, name: string): string => this.backfill(key, name),
-            onAdvance: (key: string): string => this.advance(key),
-            onInputFocus: (id: string): void => this.focusInput(id), onInputBlur: (id: string): void => this.blurInput(id),
-            onViewportChange: (): void => this.scheduleFocusedInputScroll() })
-        }.width('100%').height('100%').transition(TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()))
-      } else if (this.modal === 'history') {
-        Column() {
-          CheckInHistoryRecord({ data: this.data, itemId: this.selectedId, keyDate: this.recordKey, palette: this.palette,
-            scroller: this.historyRecordScroller, onBack: () => this.backToDetail(), onClose: () => this.closeSheet(),
-            onUndo: (): string => this.undoHistory(), onBackfill: (name: string): string => this.backfill(this.recordKey, name),
-            onInputFocus: (id: string): void => this.focusInput(id), onInputBlur: (id: string): void => this.blurInput(id),
-            onViewportChange: (): void => this.scheduleFocusedInputScroll() })
-        }.width('100%').height('100%').transition(TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()))
-      } else if (this.modal === 'range') {
-        Column() { this.rangeBody() }.width('100%').height('100%')
-          .transition(TransitionEffect.translate({ x: '100%' }).animation(Motion.spring()))
-
+      if (this.modal !== 'detail') {
+        Column() { this.subpageBody() }.width('100%').height('100%')
+          .translate({ x: this.selectedId ? (1 - this.modalProgress) * this.modalTravel : 0 })
+          .renderGroup(false)
+          .hitTestBehavior(this.navigationMoving ? HitTestMode.None : HitTestMode.Default)
+          .accessibilityLevel(this.navigationMoving ? 'no-hide-descendants' : 'auto')
       }
     }.width('100%').height('100%').clip(true)
+      .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {
+        const width = Number(size.width);
+        if (Number.isFinite(width) && width > 0) this.modalWidth = width;
+      })
   }
 
   @Builder private sheetContent() {

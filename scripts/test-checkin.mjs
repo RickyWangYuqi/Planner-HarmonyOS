@@ -31,14 +31,14 @@ function load(name) {
 const { AppData, AppAction, Task, HistoryEntry } = load('PlanerModel');
 const { CheckInItem } = load('CheckInModel');
 const { reduce, normalizeData, taskDelayText } = load('PlanerEngine');
-const { validateCheckIn, validateCheckInAction, parseCheckInName, formatCheckInName, nextCheckInName, isCheckInDate, checkInStats, checkInTimeline, previewCheckInRecord, checkInFutureTimeline } = load('CheckInEngine');
+const { validateCheckIn, validateCheckInAction, parseCheckInName, formatCheckInName, nextCheckInName, isCheckInDate, checkInStats, checkInTimeline, previewCheckInRecord, checkInFutureTimeline, checkInEditableRecord } = load('CheckInEngine');
 let passed = 0;
 function assert(condition, message) { if (!condition) throw new Error(message); passed++; console.log('  ✓ ' + message); }
 function fresh(date = '2026-08-24') { const data = new AppData(); data.currentDate = date; data.lastRolloverDate = date; return data; }
 function item(patch = {}) { return Object.assign(new CheckInItem(), { id: 'word', name: '背单词289-298', startDate: '2026-08-24', step: 10 }, patch); }
 function action(type, patch = {}) { return Object.assign(new AppAction(type), patch); }
 function run(data, type, patch = {}) { return reduce(data, action(type, patch)); }
-function save(data, config = item()) { return run(data, 'CHECKIN_SAVE', { checkIn: config }); }
+function save(data, config = item(), progress) { return run(data, 'CHECKIN_SAVE', { checkIn: config, progress }); }
 function record(data, key, id = 'word') { return data.checkInRecords.find(value => value.itemId === id && value.key === key); }
 function task(data, key, id = 'word') { return data.todayTasks.find(value => value.checkInId === id && value.checkInKey === key); }
 function next(data, key) { return run(data, 'ROLLOVER_TO', { key }); }
@@ -101,9 +101,9 @@ assert(record(overflow, '2026-08-25').name === '第1节' && task(overflow, '2026
 console.log('3) 编辑、共享日程入口与节律');
 let edit = save(fresh(), item({ autoIncrement: true }));
 edit = save(edit, item({ ...edit.checkIns[0], name: '复习单词289-298' })); edit = next(edit, '2026-08-25');
-assert(record(edit, '2026-08-24').name === '背单词289-298' && record(edit, '2026-08-25').name === '复习单词299-308', '仅改名称前后缀不会重置递增，也不重写今日快照');
+assert(record(edit, '2026-08-24').name === '复习单词289-298' && record(edit, '2026-08-25').name === '复习单词299-308', '仅改名称前后缀立即刷新未完成今日名称，下一期仍正常递增');
 edit = save(edit, item({ ...edit.checkIns[0], name: '自己安排复习', autoIncrement: false }));
-assert(record(edit, '2026-08-25').status === 'ready' && task(edit, '2026-08-25').text === '复习单词299-308', '关闭递增并改名仍保留已经生成的今日快照');
+assert(record(edit, '2026-08-25').status === 'ready' && task(edit, '2026-08-25').text === '自己安排复习', '关闭递增并改名同步刷新已经生成但未完成的今日周期');
 edit = next(edit, '2026-08-26');
 assert(task(edit, '2026-08-26').text === '自己安排复习', '关闭递增后的后续周期使用手填名称');
 let shared = save(fresh()); const id = shared.todayTasks[0].id;
@@ -264,9 +264,9 @@ assert(record(arrivedUndo, '2026-08-27').status === 'ready' && !record(arrivedUn
 
 console.log('9) 未来编辑快照、迁移与日程防泄漏');
 let changed = save(early, item({ ...early.checkIns[0], name: '新单词100-109' }));
-assert(previewCheckInRecord(changed, 'word', '2026-08-25').name === '新单词100-109' && previewCheckInRecord(changed, 'word', '2026-08-26').name === '新单词110-119' && previewCheckInRecord(changed, 'word', '2026-08-27').name === '背单词319-328', '手动重设从下个未生成周期起生效，已提前确认的未来名称保持');
+assert(record(changed, '2026-08-24').name === '新单词100-109' && previewCheckInRecord(changed, 'word', '2026-08-25').name === '新单词110-119' && previewCheckInRecord(changed, 'word', '2026-08-26').name === '新单词120-129' && previewCheckInRecord(changed, 'word', '2026-08-27').name === '背单词319-328', '手动重设立即刷新今日未完成项，已提前完成的未来快照保持');
 changed = next(changed, '2026-08-27');
-assert(task(changed, '2026-08-27').text === '背单词319-328' && changed.checkIns[0].name === '新单词120-129' && previewCheckInRecord(changed, 'word', '2026-08-28').name === '新单词130-139', '旧未来快照到期仍显示旧名，当前规则继续推进且不回退到旧数字');
+assert(task(changed, '2026-08-27').text === '背单词319-328' && changed.checkIns[0].name === '新单词130-139' && previewCheckInRecord(changed, 'word', '2026-08-28').name === '新单词140-149', '旧未来快照到期仍显示旧名，当前规则继续推进且不回退到旧数字');
 let renamed = save(early, item({ ...early.checkIns[0], name: '复习单词289-298', step: 5 }));
 assert(previewCheckInRecord(renamed, 'word', '2026-08-26').name === '复习单词304-308' && record(renamed, '2026-08-27').name === '背单词319-328', '只改前缀或数量影响未确认预测，不重写任何已确认快照');
 renamed = save(renamed, item({ ...renamed.checkIns[0], autoIncrement: false }));
@@ -299,7 +299,7 @@ assert(record(undoBackfill, '2026-08-27').backfilled && !record(undoBackfill, '2
 assert(record(next(weekly, '2026-09-02'), '2026-09-02').name === '背单词319-328' && record(next(monthly, '2026-05-31'), '2026-05-31').name === '背单词309-318', '每周与每月多日未开应用的真实生成和只读预测完全一致');
 let changedSchedule = save(projected, item({ ...projected.checkIns[0], frequency: 'weekly', weekdays: [1, 3] })); changedSchedule = next(changedSchedule, '2026-09-02');
 changedSchedule = save(changedSchedule, item({ ...changedSchedule.checkIns[0], frequency: 'monthly', monthDays: [5, 15] }));
-assert(previewCheckInRecord(changedSchedule, 'word', '2026-10-15').name === '背单词359-368' && record(next(changedSchedule, '2026-10-15'), '2026-10-15').name === '背单词359-368', '节律切换按生效边界分段，不重数之前日期');
+assert(previewCheckInRecord(changedSchedule, 'word', '2026-10-15').name === '背单词349-358' && record(next(changedSchedule, '2026-10-15'), '2026-10-15').name === '背单词349-358', '节律切换从新的首个有效周期接续，不把被移除的今日周期重复计数');
 const hugeStart = save(fresh(), item({ startDate: '9999-01-01', autoIncrement: true }));
 const NativeDate = globalThis.Date; let dateCreations = 0;
 class CountingDate extends NativeDate { constructor(...args) { super(...args); dateCreations++; } }
@@ -369,5 +369,79 @@ let restoreRemoved = run(grouped, 'DELETE_GROUP', { group: '阅读', section: 't
 assert(task(restoreRemoved, '2026-08-24').group === null && !restoreRemoved.groups.includes('阅读'), '撤销历史记录不会使已经删除的组目录复活');
 const clearedGroup = save(grouped, item({ ...grouped.checkIns[0], group: '' }));
 assert(clearedGroup.checkIns[0].group === '' && task(clearedGroup, '2026-08-25').group === null && record(clearedGroup, '2026-08-27').group === '', '显式取消计划分组同步当前与未来，但保留可复用空目录');
+
+console.log('13) 编辑立即刷新、重新定位起始周期');
+let shifted = save(fresh(), item({ name: '看网课第10节', step: 1, autoIncrement: true }));
+shifted.todayAnchorId = task(shifted, '2026-08-24').id;
+const shiftedOriginal = JSON.stringify(shifted);
+shifted = save(shifted, item({ ...shifted.checkIns[0], startDate: '2026-08-25' }));
+assert(!record(shifted, '2026-08-24') && !task(shifted, '2026-08-24') && checkInTimeline(shifted, 'word').length === 0 && !previewCheckInRecord(shifted, 'word', '2026-08-24'), '今日开始改为明日，旧今日快照、日程和时间线立即清除');
+assert(shifted.checkIns[0].rangeUpdatedFor === '' && shifted.checkIns[0].nameAnchorDate === '2026-08-25' && previewCheckInRecord(shifted, 'word', '2026-08-25').name === '看网课第10节', '开始日期后移重置旧生成标记，明日首期仍是第10节');
+assert(checkInStats(shifted).total === 0 && shifted.todayAnchorId === null && shifted.futureTasks.length === 0 && JSON.parse(shiftedOriginal).todayTasks.length === 1, '重新安排清除今日统计、自动定位锚点和未来日程，也不污染输入状态');
+const restartedShift = normalizeData(JSON.parse(JSON.stringify(shifted)));
+assert(record(next(restartedShift, '2026-08-25'), '2026-08-25').name === '看网课第10节' && previewCheckInRecord(restartedShift, 'word', '2026-08-26').name === '看网课第11节', '重启及跨日首次生成与未来投影使用同一正确编号');
+shifted = save(shifted, item({ ...shifted.checkIns[0], startDate: '2026-08-26' }));
+shifted = save(shifted, item({ ...shifted.checkIns[0], startDate: '2026-08-24', name: '复习网课第20节' }));
+assert(record(shifted, '2026-08-24').name === '复习网课第20节' && shifted.todayTasks.length === 1 && shifted.checkIns[0].schedules.length === 1 && previewCheckInRecord(shifted, 'word', '2026-08-26').name === '复习网课第22节', '同日多次改期再改回来只有一个节律版本和一个今日周期');
+let futureStartEdit = save(fresh(), item({ startDate: '2026-08-28', autoIncrement: true }));
+futureStartEdit = save(futureStartEdit, item({ ...futureStartEdit.checkIns[0], startDate: '2026-08-25' }));
+assert(record(next(futureStartEdit, '2026-08-28'), '2026-08-28').name === '背单词319-328', '修改尚未到来的原开始日期后，旧未来版本不会重新覆盖新节律');
+let historyProtected = save(fresh(), item({ autoIncrement: true }));
+historyProtected = run(historyProtected, 'CHECKIN_COMPLETE', { id: 'word', key: '2026-08-24' });
+const completedSnapshot = JSON.stringify(record(historyProtected, '2026-08-24'));
+historyProtected = save(historyProtected, item({ ...historyProtected.checkIns[0], name: '新课第10节', step: 1, startDate: '2026-08-25' }));
+assert(JSON.stringify(record(historyProtected, '2026-08-24')) === completedSnapshot && previewCheckInRecord(historyProtected, 'word', '2026-08-25').name === '新课第10节', '编辑起始日期和名称保留真正完成的历史快照，新节律从新首期开始');
+historyProtected = next(next(historyProtected, '2026-08-25'), '2026-08-26');
+const pastPendingName = record(historyProtected, '2026-08-25').name;
+historyProtected = save(historyProtected, item({ ...historyProtected.checkIns[0], name: '改名第50节' }));
+assert(record(historyProtected, '2026-08-25').name === pastPendingName && task(historyProtected, '2026-08-25').text === pastPendingName && task(historyProtected, '2026-08-26').text === '改名第50节', '编辑刷新今天但不回写过去未完成延期条目的原内容');
+let futureUndoneEdit = save(futureUndone, item({ ...futureUndone.checkIns[0], name: '新单词100-109' }));
+assert(record(futureUndoneEdit, '2026-08-27').name === '新单词130-139' && !futureUndoneEdit.futureTasks.length, '未来提前完成撤销后再次编辑按新计划刷新尚未完成的该期内容');
+
+let completedFrequency = save(fresh(), item({ name: '看网课第10节', step: 1, autoIncrement: true }));
+completedFrequency = run(completedFrequency, 'CHECKIN_COMPLETE', { id: 'word', key: '2026-08-24' });
+completedFrequency = save(completedFrequency, item({ ...completedFrequency.checkIns[0], frequency: 'weekly', weekdays: [1, 3] }));
+assert(previewCheckInRecord(completedFrequency, 'word', '2026-08-26').name === '看网课第11节', '已完成今日仍属于新节律时保留消耗的编号，下个有效周期不重复第10节');
+completedFrequency = save(completedFrequency, item({ ...completedFrequency.checkIns[0], startDate: '2026-08-20' }));
+assert(previewCheckInRecord(completedFrequency, 'word', '2026-08-26').name === '看网课第11节' && record(completedFrequency, '2026-08-24').status === 'completed', '开始日期前移但已完成今日仍有效时，不回退下一期编号');
+
+console.log('14) 周期进度、编辑完成状态与日程同步');
+let progressState = save(fresh(), item({ autoIncrement: true }), 45);
+assert(task(progressState, '2026-08-24').progress === 45 && record(progressState, '2026-08-24').progress === 45 && record(progressState, '2026-08-24').status === 'ready', '保存本期进度同时写入独立周期和当日日程');
+const editable = checkInEditableRecord(progressState, progressState.checkIns[0]); editable.progress = 99;
+assert(record(progressState, '2026-08-24').progress === 45 && checkInEditableRecord(progressState, progressState.checkIns[0]).key === '2026-08-24', '编辑器读取的是独立周期副本，不在拖动过程中修改应用数据');
+progressState = save(progressState, item({ ...progressState.checkIns[0], name: '复习单词289-298', group: '学习' }));
+assert(record(progressState, '2026-08-24').progress === 45 && task(progressState, '2026-08-24').progress === 45 && task(progressState, '2026-08-24').text === '复习单词289-298', '只改名称或分组不覆盖本期已有进度');
+progressState = save(progressState, progressState.checkIns[0], 100);
+assert(record(progressState, '2026-08-24').status === 'completed' && task(progressState, '2026-08-24').completed && task(progressState, '2026-08-24').progress === 100 && checkInStats(progressState).completed === 1, '进度达到100同步完成状态、完成时间和统计');
+progressState = save(progressState, progressState.checkIns[0], null);
+assert(record(progressState, '2026-08-24').progress === null && task(progressState, '2026-08-24').progress === null && record(progressState, '2026-08-24').status === 'completed', '清除百分比沿用普通日程语义，保留完成状态');
+progressState = save(progressState, progressState.checkIns[0], 60);
+assert(record(progressState, '2026-08-24').status === 'ready' && !task(progressState, '2026-08-24').completed && !record(progressState, '2026-08-24').completedAt && task(progressState, '2026-08-24').progress === 60, '已完成周期改为低于100时取消完成并保留新进度');
+progressState = run(progressState, 'CHECKIN_COMPLETE', { id: 'word', key: '2026-08-24' });
+progressState = run(progressState, 'CHECKIN_UNDO', { id: 'word', key: '2026-08-24' });
+assert(record(progressState, '2026-08-24').progress === 0 && task(progressState, '2026-08-24').progress === 0 && !task(progressState, '2026-08-24').completed, '完成后撤销清除100%状态，周期与重建日程进度一致');
+progressState = run(progressState, 'EDIT_TASK', { id: task(progressState, '2026-08-24').id, progress: 75 });
+const progressReloaded = normalizeData(JSON.parse(JSON.stringify(progressState)));
+assert(record(progressReloaded, '2026-08-24').progress === 75 && checkInEditableRecord(progressReloaded, progressReloaded.checkIns[0]).progress === 75, '普通日程入口修改进度后周期和编辑器读取最新值，重启不丢失');
+const progressNext = next(progressReloaded, '2026-08-25');
+assert(record(progressNext, '2026-08-25').progress === null && task(progressNext, '2026-08-25').progress === null && record(progressNext, '2026-08-24').progress === 75, '新周期不继承上一期百分比，旧周期保持原进度');
+let futureProgress = save(progressState, item({ ...progressState.checkIns[0], startDate: '2026-08-25' }), 50);
+assert(!record(futureProgress, '2026-08-24') && record(futureProgress, '2026-08-25').progress === 50 && record(futureProgress, '2026-08-25').name === '复习单词289-298' && !futureProgress.todayTasks.length && !futureProgress.futureTasks.length, '改为明日开始并设置50%只写新首期进度，今天清除且不泄漏未来日程');
+futureProgress = save(futureProgress, futureProgress.checkIns[0], 100);
+assert(record(futureProgress, '2026-08-25').status === 'completed' && record(futureProgress, '2026-08-25').advanced && checkInStats(futureProgress).completed === 0 && !futureProgress.todayTasks.length && !futureProgress.futureTasks.length, '未来首期100%记为提前完成，不提前进入今日统计和日程');
+const arrivedProgress = next(normalizeData(JSON.parse(JSON.stringify(futureProgress))), '2026-08-25');
+assert(task(arrivedProgress, '2026-08-25').completed && task(arrivedProgress, '2026-08-25').progress === 100 && task(arrivedProgress, '2026-08-25').text === '复习单词289-298', '未来进度重启到期后正确落入当日日程');
+const clearedArrivedProgress = save(arrivedProgress, arrivedProgress.checkIns[0], null);
+assert(record(clearedArrivedProgress, '2026-08-25').advanced && task(clearedArrivedProgress, '2026-08-25').completedDate === '2026-08-25' && task(clearedArrivedProgress, '2026-08-25').progress === null, '到期后清除提前完成项百分比仍保留提前标记及原周期归档日期');
+futureProgress = save(futureProgress, futureProgress.checkIns[0], 25);
+assert(!record(futureProgress, '2026-08-25').advanced && record(futureProgress, '2026-08-25').status === 'ready' && record(futureProgress, '2026-08-25').progress === 25 && !futureProgress.todayTasks.length, '降低未来周期进度会取消提前完成且仍不生成未来日程');
+futureProgress = next(futureProgress, '2026-08-25');
+assert(task(futureProgress, '2026-08-25').progress === 25 && previewCheckInRecord(futureProgress, 'word', '2026-08-26').progress === null, '未来未完成进度到期保留，下一期投影仍独立');
+assert(error(progressState, 'CHECKIN_SAVE', { checkIn: progressState.checkIns[0], progress: Number.NaN }) && error(progressState, 'CHECKIN_SAVE', { checkIn: progressState.checkIns[0], progress: -1 }), '无效进度明确拒绝，避免保存NaN或负数');
+const weeklyProgressItem = item({ ...progressState.checkIns[0], frequency: 'weekly', weekdays: [3], startDate: '2026-08-25' });
+assert(checkInEditableRecord(progressState, weeklyProgressItem).key === '2026-08-26', '编辑器以草稿新节律定位首个有效周期，不把开始日当作必打日');
+const pausedProgress = run(progressState, 'CHECKIN_PAUSE', { id: 'word' });
+assert(checkInEditableRecord(pausedProgress, pausedProgress.checkIns[0]).progress === 75 && !checkInEditableRecord(pausedProgress, item({ ...pausedProgress.checkIns[0], startDate: '2026-08-25' })), '暂停后可读已有今日进度，不预造暂停期间未来进度');
 
 console.log(`打卡逻辑：${passed} 项通过。`);

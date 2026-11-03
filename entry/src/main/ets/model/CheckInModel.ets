@@ -107,6 +107,8 @@ export class CheckInRecord {
   itemId: string = '';
   key: string = '';
   status: CheckInStatus = 'pending';
+  // 进度属于单个周期，不作为后续周期的默认值。
+  progress: number | null = null;
   name: string = '';
   group: string = '';
   nameVersion: number = 1;
@@ -128,6 +130,8 @@ export class CheckInRecord {
     record.itemId = typeof value.itemId === 'string' ? value.itemId : '';
     record.key = typeof value.key === 'string' ? value.key : '';
     record.status = value.status === 'skipped' ? 'ready' : (['ready', 'completed'].includes(value.status) ? value.status : 'pending');
+    record.progress = typeof value.progress === 'number' && Number.isFinite(value.progress)
+      ? Math.max(0, Math.min(100, Math.round(value.progress))) : null;
     record.name = typeof value.name === 'string' ? value.name : '';
     record.group = typeof value.group === 'string' ? value.group.trim() : '';
     record.nameVersion = typeof value.nameVersion === 'number' ? value.nameVersion : 0;

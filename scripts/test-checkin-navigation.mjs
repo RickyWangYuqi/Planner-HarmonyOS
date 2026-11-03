@@ -85,7 +85,7 @@ function makeClass(name, text, appended = '') {
   const classSource = core.replace('@Component', '').replace('export struct ' + name, 'class ' + name)
     .replace(/@StorageProp\('[^']+'\)\s*/g, '').replace(/@Watch\('[^']+'\)\s*/g, '').replace(/@(?:Prop|State)\s+/g, '') + `
     getUIContext() { return {
-      animateTo: (options, change) => { (this.testAnimations ||= []).push(options); change(); if(options.onFinish)options.onFinish(); },
+      animateTo: (options, change) => { (this.testAnimations ||= []).push(options); change(); if(options.onFinish && !this.testDeferFinish)options.onFinish(); },
       getHostContext: () => null,
       getFrameNodeById: id => this.testNodes?.get(id) || null,
       px2vp: value => value / (this.testDensity || 1),
@@ -98,6 +98,7 @@ function makeClass(name, text, appended = '') {
   globalThis.ComponentClass=${name};`;
   const context = vm.createContext({ ...modelApi, console, TouchType, HitTestMode: {Default:'default',None:'none'},
     DismissReason: { PRESS_BACK: 0 },
+    display: { getDefaultDisplaySync() { if (displayFailure) throw new Error('Display unavailable'); return { refreshRate: 60, supportedRefreshRates: displayRates }; } },
     Date: class extends Date { static now() { return now; } },
     Palette: class {}, Scroller: class {
       scrollBy(x,y) { (this.calls ||= []).push([x,y]); }
@@ -108,6 +109,7 @@ function makeClass(name, text, appended = '') {
     TransitionEffect: { IDENTITY: {identity:true}, OPACITY:effect({opacity:true}),
       translate: options => effect({ translate: options }), asymmetric: (enter, exit) => effect({ enter, exit }) },
     Materials: { confirmation: (_palette, options) => options },
+    EditorMaterialRefresh: { request: () => {} },
     CheckInFocusFrame: class { constructor(callback) { this.callback=callback; } },
     curves: { springMotion: (...values) => values },
     setTimeout: callback => timers.set(callback), clearTimeout: id => timers.clear(id)
@@ -134,25 +136,29 @@ function filterClass(name, text) {
     panCancelFromView() { ${callback(text, '.onActionCancel(() => {')} }
   `);
 }
+let displayRates = [60, 120];
+let displayFailure = false;
 const filter = filterClass('CheckInFilter', filterSource);
 const theme = filterClass('ThemeModePicker', source('ThemeModePicker'));
 const detailHeader = viewSource.slice(viewSource.indexOf('@Builder private detailHeader('), viewSource.indexOf('@Builder private modalHeader('));
 const detailTitles = [...detailHeader.matchAll(/Text\((.+)\)\.fontSize\(/g)].map(value=>value[1]);
 const modalBody = viewSource.slice(viewSource.indexOf('@Builder private modalBody('), viewSource.indexOf('@Builder private sheetContent('));
+const materialGroups = [...modalBody.matchAll(/\.renderGroup\((.+)\)/g)].map(value => value[1]);
 const detailAccess = modalBody.match(/\.accessibilityLevel\((.+)\)/)?.[1];
 const detailHit = modalBody.match(/\.hitTestBehavior\((.+)\)/)?.[1];
-const editorTransition = modalBody.match(/\.transition\((this\.selectedId[^\n]+)\)/)?.[1];
-if (detailTitles.length!==2 || !detailAccess || !detailHit || !editorTransition) throw new Error('缺少真实详情标题、隐藏条件或新建编辑转场');
+const editorOffset = modalBody.match(/\.translate\(\{ x: (this\.selectedId[^\n]+) \}\)/)?.[1];
+if (detailTitles.length!==2 || !detailAccess || !detailHit || !editorOffset) throw new Error('缺少真实详情标题、隐藏条件或新建编辑转场');
 const overview=viewSource.slice(viewSource.indexOf('@Builder private overview('),viewSource.indexOf('@Builder private detailHeader('));
 const listFrameChain=overview.match(/\}\s*(\.width\([^)]*\)(?:\s*\.\w+\([^)]*\))*\.id\('checkin-plan-lists'\))/)?.[1];
 if(!listFrameChain)throw new Error('缺少列表实际外框属性链');
 const timelineBuilder=viewSource.slice(viewSource.indexOf('@Builder private timelineList('),viewSource.indexOf('@Builder private manageButtonContent('));
 const view = makeClass('CheckInView', viewSource, `
+  materialGroupsFromView() { return [${materialGroups.join(',')}]; }
   detailTitleFromView() { return ${detailTitles[0]}; }
   detailSubtitleFromView() { return ${detailTitles[1]}; }
   detailAccessFromView() { return ${detailAccess}; }
   detailHitFromView() { return ${detailHit}; }
-  editorTransitionFromView() { return ${editorTransition}; }
+  editorOffsetFromView() { return ${editorOffset}; }
   listFrameFromView() {
     const frame={}; const attributes={width(value){frame.width=value;return attributes;},clip(value){frame.clip=value;return attributes;},
       id(value){frame.id=value;return attributes;}};
@@ -282,8 +288,8 @@ console.log('3) 实际页面导航、滚动控制器和过期焦点任务');
   v.editorItem.name='未保存';v.backToDetail();
   assert(v.modal==='detail' && v.selected().name==='计划A' && v.sheetShown, '编辑返回详情不关闭弹层也不保存草稿');
   const controllers=[];
-  for(const modal of ['detail','editor','backfill','range','history']){v.showModal(modal);controllers.push(v.activeScroller());}
-  assert(new Set(controllers).size===5, '常驻详情与四个二级内容不共享滚动控制器');
+  for(const modal of ['detail','editor','backfill','range']){v.showModal(modal);controllers.push(v.activeScroller());}
+  assert(new Set(controllers).size===4, '常驻详情与三个二级内容不共享滚动控制器');
   v.sheetActive=true;v.focusedInput='old-field';v.scheduleFocusedInputScroll();
   const version=v.focusScrollVersion;let measurements=0;v.ensureFocusedInputVisible=()=>{measurements++;};
   v.showModal('detail');for(const frame of v.testFrames||[])frame.callback();timers.flush();
@@ -314,7 +320,7 @@ console.log('4) 等待确认期间更换条目不会把旧确认应用到新条�
 console.log('5) 实际半模态关闭拦截区分系统返回与直接关闭');
 {
   let valid=true;
-  for(const modal of ['editor','backfill','range','history']) {
+  for(const modal of ['editor','backfill','range']) {
     const v=newView();v.openDetail(v.data.checkIns[0]);v.showModal(modal);let dismisses=0;
     v.dismissSheet({reason:0,dismiss:()=>{dismisses++;}});
     valid=valid && v.modal==='detail' && v.sheetShown && v.selectedId==='a' && dismisses===0;
@@ -339,15 +345,76 @@ console.log('5) 实际半模态关闭拦截区分系统返回与直接关闭');
 console.log('6) 新建与二级编辑分开转场，导航清理按钮按压');
 {
   const v=newView();v.openNew();
-  assert(v.editorTransitionFromView().identity===true,'新建表单只跟随半模态入场，不额外从右侧飞入');
-  v.openDetail(v.data.checkIns[0]);v.editSelected();const transition=v.editorTransitionFromView();
-  assert(transition.translate.x==='100%' && transition.animationOptions.motion==='spring',
-    '从详情进入编辑继续使用横向弹簧转场');
+  assert(v.editorOffsetFromView()===0,'新建表单只跟随半模态入场，不额外从右侧飞入');
+  v.openDetail(v.data.checkIns[0]);v.modalWidth=620;v.editSelected();
+  assert(v.editorOffsetFromView()===620 && v.navigationMoving && !v.testAnimations?.length,
+    '二级页先在实测宽度外静态挂载，不在创建表单时启动动画');
+  v.testFrames.shift().callback();
+  assert(v.editorOffsetFromView()===620 && !v.testAnimations?.length, '首个布局提交后仍等待材质高度回填');
+  v.testFrames.shift().callback();
+  assert(v.editorOffsetFromView()===0 && !v.navigationMoving && v.testAnimations.at(-1).motion==='spring',
+    '两次布局完成后只启动一次原生横向弹簧动画');
   v.buttonTouch('checkin-edit',{type:TouchType.Down});let stateAtAction='unset';
   v.tapButton(()=>{stateAtAction=v.pressedButton;v.backToDetail();});
   assert(stateAtAction==='' && v.modal==='detail','管理按钮执行页面切换前同步清理按压状态');
   v.buttonTouch('checkin-backfill',{type:TouchType.Down});v.showModal('backfill');
   assert(v.pressedButton==='','非按钮路径切换二级页面也清空旧按压');
+}
+console.log('6a) 动画生命周期、退场保留和迟到帧隔离');
+{
+  const v=newView();v.openDetail(v.data.checkIns[0]);v.editSelected();
+  const first=v.testFrames.shift();v.testDeferFinish=true;v.backToDetail();first.callback();
+  assert(v.modal==='detail' && v.modalProgress===0 && !v.testFrames.length,
+    '预布局期间返回立即清理且不依赖空动画完成回调，旧入场回调失效');
+  v.editSelected();const closingFrame=v.testFrames.shift();v.closeSheet();closingFrame.callback();
+  assert(!v.navigationMoving && !v.sheetShown && !v.testFrames.length, '关闭弹层取消预布局回调和动画交互锁');
+  v.openDetail(v.data.checkIns[0]);v.editSelected();const old=v.testFrames.shift();v.openDetail(v.data.checkIns[1]);old.callback();
+  assert(v.selectedId==='b' && v.modal==='detail' && v.modalProgress===0 && !v.testFrames.length,
+    '切换计划使旧计划的预布局回调失效');
+}
+{
+  const v=newView();v.openDetail(v.data.checkIns[0]);v.testDeferFinish=true;v.editSelected();
+  v.testFrames.shift().callback();v.testFrames.shift().callback();
+  const entering=v.testAnimations.at(-1);const scroller=v.detailScroller;
+  assert(v.modalProgress===1 && v.navigationMoving && v.detailHitFromView()==='none',
+    '原生动画结束之前保留交互锁，不把状态目标值误当视觉结束');
+  entering.onFinish();v.backToDetail();const leaving=v.testAnimations.at(-1);
+  assert(v.modal==='editor' && v.modalProgress===0 && v.navigationMoving && v.detailScroller===scroller,
+    '退场动画中继续挂载完整子页和原详情控制器，避免先卸载导致画面跳变');
+  leaving.onFinish();
+  assert(v.modal==='detail' && !v.navigationMoving && v.detailScroller===scroller && v.detailHitFromView()==='default',
+    '退场完成才卸载子页并恢复原详情命中和滚动位置');
+  v.editSelected();v.testFrames.shift().callback();v.testFrames.shift().callback();const outdated=v.testAnimations.at(-1);
+  v.openDetail(v.data.checkIns[1]);outdated.onFinish();
+  assert(v.modal==='detail' && v.selectedId==='b' && v.modalProgress===0, '旧动画完成回调不能修改新打开的计划');
+}
+console.log('6b) 实时材质与转场刷新率');
+{
+  const v=newView();v.openDetail(v.data.checkIns[0]);
+  assert(v.materialGroupsFromView().length===2 && v.materialGroupsFromView().every(value=>value===false),
+    '详情与子页材质宿主初始均使用实时绘制，不缓存背景采样');
+  v.editSelected();v.testDeferFinish=true;v.testFrames.shift().callback();v.testFrames.shift().callback();
+  const entering=v.testAnimations.at(-1);
+  assert(v.navigationMoving && v.materialGroupsFromView().every(value=>value===false),
+    '入场中两页不切换为离屏缓存，避免按钮和分区背板消失');
+  assert(entering.expectedFrameRateRange.expected===120 && entering.expectedFrameRateRange.max===120,
+    '静止页面当前60Hz时仍按屏幕支持的120Hz请求入场动画');
+  entering.onFinish();v.backToDetail();const leaving=v.testAnimations.at(-1);
+  assert(leaving.expectedFrameRateRange.expected===120 && v.materialGroupsFromView().every(value=>value===false),
+    '返回也请求最高刷新率且不切换材质渲染路径');
+  leaving.onFinish();
+  assert(v.materialGroupsFromView().every(value=>value===false), '转场完成不解除材质缓存，避免背景在终点突然出现');
+  for (const maximum of [60,90,144]) {
+    displayRates=[30,maximum];
+    const range=v.navigationFrameRateRange();
+    assert(range.expected===maximum && range.max===maximum && range.min===0,
+      '刷新率请求适配设备支持上限：'+maximum+'Hz');
+  }
+  displayRates=[0,-1,Number.NaN,Number.POSITIVE_INFINITY];
+  assert(v.navigationFrameRateRange().expected===120, '能力列表为空或无效时使用系统可修正的120Hz请求');
+  displayFailure=true;
+  assert(v.navigationFrameRateRange().expected===120, '查询屏幕失败不阻断页面切换');
+  displayFailure=false;displayRates=[60,120];
 }
 console.log('7) 打卡切换按钮真实触摸回调不依赖 Up 才复位');
 {
@@ -377,20 +444,48 @@ console.log('7) 打卡切换按钮真实触摸回调不依赖 Up 才复位');
   button.completed=true;button.future=false;button.touchFromView({type:TouchType.Down});button.clickFromView();
   assert(callbacks===3 && !button.pressed, '日期到达当期后继续保持相同撤销交互');
 }
-console.log('8) 四种二级输入的焦点跟随只滚动本页控制器');
+{
+  const button=new toggle.Class();button.historical=true;
+  assert(button.label()==='补卡' && button.labelIcon(button.label())==='', '历史未完成按钮为补卡且没有完成勾号');
+  button.completed=true;
+  assert(button.label()==='撤销' && button.labelIcon(button.label())==='restore', '历史已完成使用同一按钮的撤销状态');
+  button.completed=false;
+  assert(button.label()==='补卡' && button.contentTransition().animationOptions.motion==='quick',
+    '历史撤销后标签回到补卡并复用快速内部切换动画');
+}
+console.log('8) 三级表单与时间线输入的焦点跟随只滚动本页控制器');
 {
   const v=newView();v.sheetActive=true;v.testDensity=2;
   const node=(top,height)=>({isAttached:()=>true,getPositionToWindowWithTransform:()=>({y:top}),getMeasuredSize:()=>({height:height*2})});
   v.testNodes=new Map([['field',node(180,60)],['checkin-editor-scroll',node(100,100)],
-    ['checkin-backfill-scroll',node(100,100)],['checkin-range-scroll',node(100,100)],['checkin-history-scroll',node(100,100)]]);
-  for(const modal of ['editor','backfill','range','history']) {
+    ['checkin-backfill-scroll',node(100,100)],['checkin-range-scroll',node(100,100)],['checkin-timeline-list',node(100,100)]]);
+  for(const modal of ['editor','backfill','range']) {
     v.showModal(modal);v.focusedInput='field';v.ensureFocusedInputVisible();
   }
-  assert([v.editorScroller,v.backfillScroller,v.rangeScroller,v.historyRecordScroller].every(scroller=>scroller.calls?.length===1 && scroller.calls[0][1]===48),
-    '编辑、补卡、确认内容与历史计划分别滚动各自控制器到真实输入框可见位置');
+  v.showModal('detail');v.focusedInput='checkin-timeline-name';v.testNodes.set('checkin-timeline-name',node(180,60));v.ensureFocusedInputVisible();
+  assert([v.editorScroller,v.backfillScroller,v.rangeScroller].every(scroller=>scroller.calls?.length===1 && scroller.calls[0][1]===48) && v.timelineScroller.calls?.[0][1]===72,
+    '编辑、补卡、确认内容与时间线行内补卡分别滚动各自控制器');
   assert(!v.detailScroller.calls && !v.overviewScroller.calls,'焦点跟随不移动常驻详情和背景列表');
-  v.showModal('detail');v.ensureFocusedInputVisible();
+  v.blurInput('checkin-timeline-name');v.ensureFocusedInputVisible();
   assert(!v.detailScroller.calls,'返回详情清空输入焦点后不继续滚动');
+}
+{
+  const v=newView();v.openDetail(v.data.checkIns[0]);v.sheetActive=true;v.focusedInput='checkin-timeline-name';
+  let outerOffset=0;let innerOffset=0;
+  const node=(top,height)=>({isAttached:()=>true,getPositionToWindowWithTransform:()=>({y:top()}),getMeasuredSize:()=>({height})});
+  v.detailScroller.currentOffset=()=>({yOffset:outerOffset});
+  v.detailScroller.scrollBy=(_x,y)=>{outerOffset=Math.min(outerOffset+y,180);};
+  v.timelineScroller.scrollBy=(_x,y)=>{innerOffset+=y;};
+  v.testNodes=new Map([['checkin-detail-scroll',node(()=>100,220)],
+    ['checkin-timeline-list',node(()=>280-outerOffset,440)],
+    ['checkin-timeline-name',node(()=>620-outerOffset-innerOffset,48)]]);
+  v.ensureFocusedInputVisible();
+  assert(outerOffset===180 && innerOffset===0 && v.testFrames.length===1,
+    '键盘缩小外层视口后先把时间线移入可见区，下一帧再测量行内输入');
+  v.testFrames.shift().callback();
+  assert(innerOffset===230 && 620-outerOffset-innerOffset+48+54<=312,
+    '嵌套时间线按与外层视口交集滚动，同时保留名称输入和补卡按钮');
+  v.blurInput('checkin-timeline-name');timers.flush();
 }
 console.log('9) 时间线实际列表参数、加载历史锚点与过期帧隔离');
 {
@@ -415,8 +510,8 @@ console.log('9) 时间线实际列表参数、加载历史锚点与过期帧隔�
   v.openDetail(v.data.checkIns[0]);v.moreTimelineHistory();const pending=v.testFrames.at(-1);
   v.openDetail(v.data.checkIns[1]);pending.callback();
   assert(!v.timelineScroller.indexCalls, '加载历史期间切换计划后，旧帧不能滚动新计划同日期记录');
-  v.moreTimelineHistory();const inDetail=v.testFrames.at(-1);v.showModal('history');inDetail.callback();
-  assert(!v.timelineScroller.indexCalls, '进入历史子页后旧列表帧不移动底层详情');
+  v.moreTimelineHistory();const inDetail=v.testFrames.at(-1);v.showModal('backfill');inDetail.callback();
+  assert(!v.timelineScroller.indexCalls, '进入补卡子页后旧列表帧不移动底层详情');
   v.backToDetail();v.moreTimelineHistory();const beforeClose=v.testFrames.at(-1);v.closeSheet();beforeClose.callback();
   assert(!v.timelineScroller.indexCalls, '关闭弹层后未提交的时间线帧不再执行滚动');
 }

@@ -201,6 +201,7 @@ export function validateCheckInAction(data: AppData, action: AppAction): string 
   if (action.type === 'CHECKIN_SKIP') return '不再支持跳过，可保留未完成或暂停整个计划';
   if (action.type === 'CHECKIN_SAVE') {
     if (!action.checkIn) return '缺少打卡内容';
+    if (action.progress !== undefined && action.progress !== null && (!Number.isFinite(action.progress) || action.progress < 0 || action.progress > 100)) return '进度必须是 0 到 100 之间的有效数字';
     return validateCheckIn(action.checkIn);
   }
   const item = data.checkIns.find((value: CheckInItem): boolean => value.id === action.id);
@@ -270,6 +271,7 @@ function allTasks(data: AppData): Task[] {
   return tasks;
 }
 function removeLinkedTask(data: AppData, record: CheckInRecord): void {
+  if (data.todayTasks.some((task: Task): boolean => task.checkInId === record.itemId && task.checkInKey === record.key && task.id === data.todayAnchorId)) data.todayAnchorId = null;
   data.todayTasks = data.todayTasks.filter((task: Task): boolean => task.checkInId !== record.itemId || task.checkInKey !== record.key);
   data.futureTasks = data.futureTasks.filter((task: Task): boolean => task.checkInId !== record.itemId || task.checkInKey !== record.key);
   data.history.forEach((entry: HistoryEntry): void => { entry.tasks = entry.tasks.filter((task: Task): boolean => task.checkInId !== record.itemId || task.checkInKey !== record.key); });
@@ -282,7 +284,7 @@ function taskFor(data: AppData, record: CheckInRecord): Task {
   // 已删除的目录不因历史撤销而复活，原历史快照仍保留当时归属。
   task.group = record.group && data.groups.includes(record.group) ? record.group : null;
   task.text = checkInTaskText(record); task.createdAt = record.generatedAt || new Date().toISOString();
-  task.scheduledDate = record.key; task.completed = record.status === 'completed';
+  task.scheduledDate = record.key; task.completed = record.status === 'completed'; task.progress = record.progress;
   task.completedAt = record.completedAt || null;
   task.completedDate = record.completedAt ? (record.advanced ? record.key : actualCompletionDate(record.completedAt)) : null;
   return task;
@@ -352,7 +354,7 @@ function scheduleSnapshot(item: CheckInItem, effectiveFrom: string): CheckInSche
   schedule.weekdays = item.weekdays.slice(); schedule.monthDays = item.monthDays.slice();
   return schedule;
 }
-function saveItem(data: AppData, source: CheckInItem): void {
+function saveItem(data: AppData, source: CheckInItem): CheckInItem {
   const item = CheckInItem.copy(source); const today = actualDate(data);
   item.name = item.name.trim(); item.nameVersion = 1;
   item.group = item.group.trim();
@@ -367,20 +369,30 @@ function saveItem(data: AppData, source: CheckInItem): void {
     item.rangeUpdatedFor = ''; item.nameAnchorDate = item.startDate > today ? item.startDate : today;
     item.pauses = []; item.schedules = [scheduleSnapshot(item, item.startDate)];
     if (item.paused) { const pause = new CheckInPause(); pause.from = today; item.pauses.push(pause); }
-    data.checkIns.push(item); return;
+    data.checkIns.push(item); return item;
   }
   // 编辑不能经表单绕过暂停/删除动作，也不能重写历史停用区间。
   item.paused = old.paused; item.deleted = old.deleted; item.createdAt = old.createdAt; item.deletedDate = old.deletedDate;
   item.pauses = old.pauses.map((pause: CheckInPause): CheckInPause => CheckInPause.copy(pause));
   item.schedules = old.schedules.map((schedule: CheckInSchedule): CheckInSchedule => CheckInSchedule.copy(schedule));
   if (item.schedules.length === 0) item.schedules.push(scheduleSnapshot(old, old.startDate));
-  if (old.startDate !== item.startDate || old.frequency !== item.frequency || old.weekdays.join(',') !== item.weekdays.join(',') || old.monthDays.join(',') !== item.monthDays.join(',')) item.schedules.push(scheduleSnapshot(item, today));
+  const scheduleChanged = old.startDate !== item.startDate || old.frequency !== item.frequency ||
+    old.weekdays.join(',') !== item.weekdays.join(',') || old.monthDays.join(',') !== item.monthDays.join(',');
+  if (scheduleChanged) {
+    // 同一天的再次编辑替换当日版本；旧的未来生效版本不能在到期时覆盖新设置。
+    item.schedules = item.schedules.filter((schedule: CheckInSchedule): boolean => schedule.effectiveFrom < today);
+    item.schedules.push(scheduleSnapshot(item, today));
+  }
   item.rangeUpdatedFor = old.rangeUpdatedFor; item.nameAnchorDate = old.nameAnchorDate || today;
   const oldPattern = parseCheckInName(old.name);
-  if (oldPattern.valid !== pattern.valid || oldPattern.mode !== pattern.mode || oldPattern.start !== pattern.start || oldPattern.end !== pattern.end) {
-    const todayRecord = recordFor(data, item.id, today);
-    const firstUnconfirmed = todayRecord && todayRecord.status !== 'pending' ? nextDay(today) : today;
-    item.rangeUpdatedFor = ''; item.nameAnchorDate = item.startDate > firstUnconfirmed ? item.startDate : firstUnconfirmed;
+  const numberChanged = oldPattern.valid !== pattern.valid || oldPattern.mode !== pattern.mode ||
+    oldPattern.start !== pattern.start || oldPattern.end !== pattern.end;
+  const todayRecord = recordFor(data, item.id, today);
+  const completedPeriodStillDue = todayRecord?.status === 'completed' && countSchedule(scheduleOf(item, today), today, today) > 0;
+  if (numberChanged || (scheduleChanged && !completedPeriodStillDue)) {
+    // 自动生成但尚未完成的今日周期可编辑。只有真实完成的快照才占用今日的原编号。
+    const firstEditable = todayRecord?.status === 'completed' ? nextDay(today) : today;
+    item.rangeUpdatedFor = ''; item.nameAnchorDate = item.startDate > firstEditable ? item.startDate : firstEditable;
   }
   data.checkIns = data.checkIns.map((value: CheckInItem): CheckInItem => value.id === item.id ? item : value);
   if (old.group !== item.group) {
@@ -394,14 +406,82 @@ function saveItem(data: AppData, source: CheckInItem): void {
       if (record.itemId === item.id && (record.key >= today || activeKeys.includes(record.key))) record.group = item.group;
     });
   }
-  // 尚未确认的今日建议不是历史快照；编辑后重新按最新设置生成建议。
-  data.checkInRecords = data.checkInRecords.filter((record: CheckInRecord): boolean => record.itemId !== item.id || record.key !== today || record.status !== 'pending');
+  const contentChanged = scheduleChanged || old.name !== item.name || old.autoIncrement !== item.autoIncrement || old.step !== item.step;
+  if (contentChanged) {
+    // 过去内容与已完成快照不可回写；今日、未来尚未完成的周期跟随新计划同步刷新。
+    data.checkInRecords = data.checkInRecords.filter((record: CheckInRecord): boolean => {
+      if (record.itemId !== item.id || record.key < today || record.status === 'completed') return true;
+      if (countSchedule(scheduleOf(item, record.key), record.key, record.key) === 0) {
+        removeLinkedTask(data, record); return false;
+      }
+      const next = createRecord(item, record.key, data.checkInRecords);
+      nameSnapshot(record, next.name); record.status = next.name ? 'ready' : 'pending';
+      if (!next.name) { removeLinkedTask(data, record); record.taskId = ''; return true; }
+      allTasks(data).forEach((task: Task): void => {
+        if (task.checkInId === item.id && task.checkInKey === record.key) task.text = record.name;
+      });
+      return true;
+    });
+    const current = recordFor(data, item.id, today);
+    if (current?.status === 'ready' && !item.paused && isCheckInDate(item, today)) {
+      advanceCurrentName(item, current); ensureRecordTask(data, current);
+    }
+  }
+  return item;
+}
+
+// 编辑进度只定位今天或新节律的首个有效周期，不把旧日期的百分比当作计划默认值。
+export function checkInEditableRecord(data: AppData, source: CheckInItem): CheckInRecord | undefined {
+  const today = actualDate(data); const item = CheckInItem.copy(source);
+  if (!validDate(today) || !validDate(item.startDate)) return undefined;
+  const schedule = scheduleSnapshot(item, today);
+  const from = item.startDate > today ? item.startDate : today;
+  const key = scheduledOnOrAfter(schedule, from);
+  if (!validDate(key) || (item.paused && key !== today)) return undefined;
+  const existing = recordFor(data, item.id, key);
+  if (existing) return CheckInRecord.copy(existing);
+  if (item.paused) return undefined;
+  item.schedules = item.schedules.filter((value: CheckInSchedule): boolean => value.effectiveFrom < today);
+  item.schedules.push(schedule);
+  const record = createRecord(item, key, data.checkInRecords);
+  record.status = record.name ? 'ready' : 'pending'; return record;
+}
+
+function saveProgress(data: AppData, item: CheckInItem, progress: number | null | undefined): void {
+  if (progress === undefined) return;
+  const target = checkInEditableRecord(data, item);
+  if (!target || target.status === 'pending') return;
+  let record = recordFor(data, item.id, target.key);
+  if (!record) {
+    if (progress === null) return;
+    record = target; record.generatedAt = new Date().toISOString(); data.checkInRecords.push(record);
+  }
+  record.progress = progress === null ? null : Math.round(progress);
+  if (record.progress !== null) {
+    const completed = record.progress >= 100;
+    const wasCompleted = record.status === 'completed';
+    if (completed && !wasCompleted) record.completedAt = new Date().toISOString();
+    if (!completed) record.completedAt = '';
+    record.status = completed ? 'completed' : 'ready';
+    record.advanced = completed && (wasCompleted ? record.advanced : record.key > actualDate(data));
+    record.taskDetached = false;
+  }
+  if (record.key > actualDate(data)) { record.taskId = ''; return; }
+  const recordKey = record.key;
+  const linked = allTasks(data).find((task: Task): boolean => task.checkInId === item.id && task.checkInKey === recordKey);
+  if (linked) {
+    linked.progress = record.progress; linked.completed = record.status === 'completed';
+    linked.completedAt = record.completedAt || null;
+    linked.completedDate = record.completedAt ? (record.advanced ? record.key : actualCompletionDate(record.completedAt)) : null;
+  } else if (!record.taskDetached) data.todayTasks.push(taskFor(data, record));
 }
 
 export function applyCheckInAction(data: AppData, action: AppAction): void {
   if (validateCheckInAction(data, action)) return;
   if (action.type === 'CHECKIN_SYNC') { syncCheckIns(data); return; }
-  if (action.type === 'CHECKIN_SAVE' && action.checkIn) { saveItem(data, action.checkIn); syncCheckIns(data); return; }
+  if (action.type === 'CHECKIN_SAVE' && action.checkIn) {
+    const saved = saveItem(data, action.checkIn); syncCheckIns(data); saveProgress(data, saved, action.progress); return;
+  }
   const item = data.checkIns.find((value: CheckInItem): boolean => value.id === action.id);
   if (!item) return;
   const today = actualDate(data); const key = action.key || today;
@@ -417,12 +497,14 @@ export function applyCheckInAction(data: AppData, action: AppAction): void {
     const preview = previewCheckInRecord(data, item.id, key); if (!preview) return;
     if (!record) { record = preview; data.checkInRecords.push(record); }
     record.status = 'completed'; record.advanced = true; record.backfilled = false;
+    if (record.progress !== null) record.progress = 100;
     record.completedAt = new Date().toISOString(); record.generatedAt = record.completedAt; record.taskId = ''; return;
   }
   if (!record) { record = createRecord(item, key, data.checkInRecords); data.checkInRecords.push(record); }
   if (action.type === 'CHECKIN_GENERATE') { generate(data, item, record, action); return; }
   if (action.type === 'CHECKIN_UNDO') {
     record.status = 'ready'; record.completedAt = ''; record.advanced = false; record.taskDetached = false;
+    if (record.progress !== null && record.progress >= 100) record.progress = 0;
     removeLinkedTask(data, record);
     if (key > today) { record.taskId = ''; record.backfilled = false; return; }
     ensureRecordTask(data, record); return;
@@ -433,6 +515,7 @@ export function applyCheckInAction(data: AppData, action: AppAction): void {
       if (action.text.length > 0) nameSnapshot(record, action.text.trim());
     }
     record.status = 'completed'; record.completedAt = new Date().toISOString(); record.advanced = false;
+    if (record.progress !== null) record.progress = 100;
     if (action.notes !== undefined) record.notes = action.notes.trim();
     const task = allTasks(data).find((value: Task): boolean => value.checkInId === item.id && value.checkInKey === key);
     if (task) { task.text = checkInTaskText(record); task.completed = true; task.completedAt = record.completedAt; task.completedDate = today; if (task.progress !== null) task.progress = 100; }
@@ -447,6 +530,10 @@ export function syncCheckInCompletion(data: AppData): void {
     const record = recordFor(data, task.checkInId, task.checkInKey);
     if (!record || record.status === 'pending') return;
     record.group = task.group || '';
+    // 普通日程/卡片修改进度同样写回周期，重启和撤销后不丢失百分比。
+    record.progress = task.progress;
+    if (task.completed && record.progress !== null) { record.progress = 100; task.progress = 100; }
+    else if (!task.completed && record.progress !== null && record.progress >= 100) { record.progress = 0; task.progress = 0; }
     if (task.completed && record.status !== 'completed') { record.status = 'completed'; record.completedAt = task.completedAt || new Date().toISOString(); }
     else if (!task.completed && record.status === 'completed') { record.status = 'ready'; record.completedAt = ''; record.advanced = false; }
   });

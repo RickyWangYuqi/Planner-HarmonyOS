@@ -41,7 +41,7 @@ const chipColor = builder('groupLabelButton').match(/\.fontColor\(([^\n]+)\)/)[1
 const chipModifier = builder('groupLabelButton').match(/\.attributeModifier\(([^\n]+)\)/)[1];
 const visible = source.match(/if \((this\.data\.settings\.showGroups)\) \{\s*MaterialSection\([^\n]+this\.groupSectionBody/)[1];
 const cls = source.slice(start, end).replace('@Component', '').replace('export struct CheckInEditor', 'class CheckInEditor')
-  .replace(/@(?:Prop|State)\s+/g, '') + `
+  .replace(/@(?:Prop|State)\s*(?:@Watch\([^)]*\)\s*)?/g, '') + `
   getUIContext() { return { animateTo: (options, fn) => { this.animations++; fn(); options.onFinish?.(); }, getPromptAction: () => ({showToast() {}}) }; }
   colorFromView(group) { return ${chipColor}; }
   modifierFromView(group) { return ${chipModifier}; }
@@ -61,8 +61,8 @@ function fresh() {
 function make(data = fresh(), item = new checkInModel.CheckInItem()) {
   const editor = new context.Editor(); editor.animations = 0; editor.saved = [];
   editor.data = data; editor.item = item; editor.palette = { accent: 'accent', textSoft: 'soft' };
-  editor.onSave = candidate => {
-    const action = Object.assign(new model.AppAction('CHECKIN_SAVE'), { checkIn: candidate });
+  editor.onSave = (candidate, progress) => {
+    const action = Object.assign(new model.AppAction('CHECKIN_SAVE'), { checkIn: candidate, progress });
     const error = checkInEngine.validateCheckInAction(editor.data, action);
     if (error) return error;
     editor.data = engine.reduce(editor.data, action); editor.saved.push(candidate); return '';
@@ -116,4 +116,36 @@ assert(hiddenNew.data.checkIns[0].group === '' && !hiddenNew.data.groups.include
 const failure = make(); failure.name = '失败重试'; failure.openGroupForm(); failure.groupName = '本地草稿'; failure.onSave = () => '保存失败'; failure.save();
 assert(failure.error === '保存失败' && failure.currentGroup() === '本地草稿' && !failure.data.groups.includes('本地草稿'), '保存失败保留可重试选择且不污染全局');
 assert(form.animations > 0 && invalid.animations > 0, '分组选择及表单展开收起通过既有布局动画与材质刷新');
-console.log(`\n打卡分组表单回归：${passed} 项断言通过。`);
+// 真实表单的进度回填、脏标记与主保存透传，避免仅测试领域API而遗漏UI入口。
+const progressData = fresh();
+const progressPlan = Object.assign(new checkInModel.CheckInItem(), { id: 'progress-form', name: '看网课第10节', startDate: progressData.currentDate, autoIncrement: true });
+const savedProgressData = engine.reduce(progressData, Object.assign(new model.AppAction('CHECKIN_SAVE'), { checkIn: progressPlan }));
+const progressForm = make(savedProgressData, savedProgressData.checkIns[0].clone());
+assert(!progressForm.progressEnabled && progressForm.progressValue === 0 && !progressForm.progressDirty, '未设置进度的编辑表单默认关闭，不产生变更');
+progressForm.changeProgressEnabled(true); progressForm.changeProgress(50); progressForm.save();
+assert(progressForm.data.todayTasks[0].progress === 50 && !progressForm.data.todayTasks[0].completed, '表单主保存把50%同步到当前打卡日程');
+const progressReopen = make(progressForm.data, progressForm.data.checkIns[0].clone());
+assert(progressReopen.progressEnabled && progressReopen.progressValue === 50 && !progressReopen.progressDirty, '再次编辑回填独立周期进度，不标记为改动');
+progressReopen.startDate = '2026-10-28'; progressReopen.progressTargetChanged();
+assert(!progressReopen.progressEnabled && progressReopen.progressValue === 0 && progressReopen.progressDate === '2026-10-28', '移动开始日后未手改的进度显示跟随新首期，不保留旧百分比');
+progressReopen.startDate = '2026-10-27'; progressReopen.progressTargetChanged();
+assert(progressReopen.progressEnabled && progressReopen.progressValue === 50, '改回当前周期会恢复其已有进度');
+progressReopen.changeProgress(100); progressReopen.save();
+assert(progressReopen.data.todayTasks[0].completed && progressReopen.data.checkInRecords[0].status === 'completed', '表单保存100%同步完成日程及打卡记录');
+const lowerProgress = make(progressReopen.data, progressReopen.data.checkIns[0].clone());
+lowerProgress.changeProgress(25); lowerProgress.save();
+assert(!lowerProgress.data.todayTasks[0].completed && lowerProgress.data.checkInRecords[0].status === 'ready', '表单降低进度同步取消完成');
+const clearProgress = make(lowerProgress.data, lowerProgress.data.checkIns[0].clone());
+clearProgress.changeProgressEnabled(false); clearProgress.save();
+assert(clearProgress.data.todayTasks[0].progress === null && clearProgress.data.checkInRecords[0].progress === null, '关闭本期进度同步清除日程与周期数值');
+const untouchedProgress = make(lowerProgress.data, lowerProgress.data.checkIns[0].clone());
+untouchedProgress.data = engine.reduce(untouchedProgress.data, Object.assign(new model.AppAction('CHECKIN_SAVE'), { checkIn: untouchedProgress.data.checkIns[0].clone(), progress: 75 }));
+untouchedProgress.changeName('课程第10节'); untouchedProgress.save();
+assert(untouchedProgress.data.todayTasks[0].progress === 75 && untouchedProgress.data.todayTasks[0].text === '课程第10节', '仅改名不覆盖表单打开后外部更新的进度');
+const futureProgress = make(savedProgressData, savedProgressData.checkIns[0].clone());
+futureProgress.startDate = '2026-10-28'; futureProgress.changeProgressEnabled(true); futureProgress.changeProgress(50); futureProgress.save();
+assert(futureProgress.data.todayTasks.length === 0 && futureProgress.data.futureTasks.length === 0 && checkInEngine.checkInEditableRecord(futureProgress.data, futureProgress.data.checkIns[0]).progress === 50, '移动开始日期并编辑进度只保存新首期，不把它放入今日或未来日程');
+const futureComplete = make(futureProgress.data, futureProgress.data.checkIns[0].clone());
+futureComplete.startDate = '2026-10-28'; futureComplete.changeProgress(100); futureComplete.save();
+assert(futureComplete.data.todayTasks.length === 0 && futureComplete.data.checkInRecords.some(record => record.key === '2026-10-28' && record.status === 'completed' && record.advanced), '未来首期编辑到100%记录提前完成，仍隔离日程列表');
+console.log(`\n打卡分组与进度表单回归：${passed} 项断言通过。`);

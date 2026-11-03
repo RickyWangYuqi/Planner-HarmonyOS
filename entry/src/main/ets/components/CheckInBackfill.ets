@@ -58,7 +58,7 @@ export struct CheckInBackfill {
     this.year = date.getFullYear(); this.month = date.getMonth();
     this.selectedDate = ''; this.draftName = ''; this.error = ''; this.notice = '';
     this.dataChanged();
-    if (this.initialDate && this.validDate(this.initialDate)) this.selectDate(this.initialDate);
+    if (this.initialDate && this.validDate(this.initialDate)) this.selectDate(this.initialDate, false);
   }
 
   private dataChanged(): void {
@@ -169,8 +169,8 @@ export struct CheckInBackfill {
     });
   }
 
-  private selectDate(key: string): void {
-    this.animateLayout((): void => {
+  private selectDate(key: string, animated: boolean = true): void {
+    const select = (): void => {
       this.selectedDate = key; this.refreshProjection();
       const message = this.selectionError(key);
       // 非周期日直接在内容区显示“当日无打卡项”，不在底栏重复长提示。
@@ -178,7 +178,9 @@ export struct CheckInBackfill {
       const record = this.recordFor(key);
       // 未来只读预测内容；过去缺少快照时须填写实际内容，不借用今天的数字。
       this.draftName = this.canEditSelected() && record ? record.name : '';
-    });
+    };
+    // 首次挂载先完成静态布局，避免日历初始化与父级页面进场叠加。
+    if (animated) this.animateLayout(select); else select();
     this.onInputBlur('checkin-backfill-name');
   }
 

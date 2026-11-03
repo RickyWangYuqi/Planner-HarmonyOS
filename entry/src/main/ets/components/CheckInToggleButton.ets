@@ -10,12 +10,14 @@ export struct CheckInToggleButton {
   @Prop completed: boolean = false;
   @Prop pending: boolean = false;
   @Prop future: boolean = false;
+  @Prop historical: boolean = false;
   @Prop buttonId: string = '';
   @State private pressed: boolean = false;
   onToggle: () => void = (): void => {};
 
   private label(): string {
     if (this.completed) return '撤销';
+    if (this.historical) return '补卡';
     if (this.pending) return '调整本期内容';
     return this.future ? '提前打卡' : '完成打卡';
   }
